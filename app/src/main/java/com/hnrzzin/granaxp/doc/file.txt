@@ -1,0 +1,25 @@
+ESTRUTURA DO BANCO:
+
+📁 licoes (coleção raiz) -> será referenciado atraves do id, pois se tratam das mesmas informações para todos os usuarios
+📁 conquistas (coleção raiz) -> será referenciado atraves do id, pois se tratam das mesmas informações para todos os usuarios
+📁 usuarios -> coleção responsavel por guardar as subcoleções dos usuarios (dados)
+   📄 usuario1 -> informações de login do usuario
+      📁 transacoes
+      📁 metas
+      📁 lembretes
+      📁 progressoLicoes
+      📁 progressoConquistas
+
+ESTRUTURA DOS MODELS:
+📁 model
+   - TransactionModel ✓
+   - GoalModel ✓
+   - ReminderModel ✓
+   - UserModel ✓
+   - LessonModel ✓
+   - LessonProgressModel ✓
+   - AchievementModel ✓
+   - AchievementProgressModel ✓
+   - TransactionType (enum) ✓
+   - GoalTermModel (enum) ✓
+   - CategoryModel (enum) ✓
