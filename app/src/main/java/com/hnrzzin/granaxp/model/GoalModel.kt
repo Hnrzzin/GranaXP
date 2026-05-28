@@ -4,8 +4,7 @@ import java.time.LocalDate
 
 data class GoalModel(
     // modelo responsavel pelas metas e sonhos
-    val idUser: String,
-    val id: String,
+    val id: String? = null,
     val deadline: GoalDeadline,
     val title: String,
     val targetAmount: BigDecimal,
