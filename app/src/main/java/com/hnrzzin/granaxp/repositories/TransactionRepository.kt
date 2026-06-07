@@ -102,7 +102,7 @@ class TransactionRepository {
                 )
                 .get().await()
             if (getAll.isEmpty) {
-                println("Sem transações cadastradas")
+                println("Nenhum registro encontrado!")
                 return emptyList()
             }else{
                 val lista = getAll.map { documento -> documento.toObject(TransactionModel::class.java) }

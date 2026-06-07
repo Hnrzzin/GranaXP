@@ -7,6 +7,7 @@ data class LessonModel(
     val timeLesson: String,
     val title: String,
     val xpReward: Int,
+    val isComplete: Boolean
 
 
 )

@@ -84,7 +84,7 @@ class GoalRepository {
                 )
                 .get().await()
             if (getAll.isEmpty){
-                println("Sem metas cadastradas")
+                println("Nenhum registro encontrado!")
                 return emptyList()
             }else{
                 val lista = getAll.map { document -> document.toObject(GoalModel::class.java) }

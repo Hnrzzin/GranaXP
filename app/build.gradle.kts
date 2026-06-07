@@ -49,6 +49,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.firebase.auth.ktx)
     implementation(libs.firebase.database)
     implementation(libs.firebase.firestore)
     testImplementation(libs.junit)
@@ -60,5 +61,21 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.0") // Verifique a versão mais atual
     implementation("com.google.firebase:firebase-firestore")
+    // Importe a BoM do Firebase
+    implementation(platform("com.google.firebase:firebase-bom:33.1.0"))
+
+    // Adicione a dependência do Firebase Auth
+    implementation("com.google.firebase:firebase-auth")
+    // Import the BoM for the Firebase platform
+    implementation(platform("com.google.firebase:firebase-bom:34.12.0"))
+
+    // Add the dependency for the Firebase Authentication library
+    // When using the BoM, you don't specify versions in Firebase library dependencies
+
+
+    // Also add the dependencies for the Credential Manager libraries and specify their versions
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 
 }
