@@ -1,5 +1,6 @@
 package com.hnrzzin.granaxp.repositories
 
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.GoalDeadline
 import com.hnrzzin.granaxp.model.GoalModel
@@ -8,15 +9,15 @@ import kotlinx.coroutines.tasks.await
 import java.math.BigDecimal
 import java.time.LocalDate
 
-class GoalRepository {
-    val db = FirebaseFirestore.getInstance()
-
+class GoalRepository(private val userID: String) {
+    private val db = FirebaseFirestore.getInstance()
+    private val collection = db.collection("Users").document(userID).collection("Goals")
     suspend fun createGoal(
         deadline: GoalDeadline,
         title: String,
         targetAmount: BigDecimal,
         currentAmount: BigDecimal,
-        targetDate: LocalDate
+        targetDate: Timestamp
     ){
         val goal = GoalModel(
             deadline = deadline,
@@ -26,7 +27,7 @@ class GoalRepository {
             currentAmount = currentAmount
         )
         try {
-            db.collection("Goals")
+            collection
                 .add(goal).await()
             println("Sucesso ao adicionar meta")
         }catch (e: Exception){
@@ -47,11 +48,11 @@ class GoalRepository {
         )
         val goalID = requireNotNull(goal.id){"ID não pode ser nulo!"}
         try {
-            db.collection("Goals").document(goalID)
+            collection.document(goalID)
                 .update(goalUpdated).await()
             println("Sucesso ao atualizar meta")
         }catch (e: Exception){
-            println("Falha ao criar meta: $e")
+            println("Falha ao atualizar meta: $e")
         }
 
 
@@ -62,7 +63,7 @@ class GoalRepository {
     ){
         val goalID = requireNotNull(goal.id){"ID não pode ser nulo!"}
         try {
-            db.collection("Goals").document(goalID)
+            collection.document(goalID)
                 .delete().await()
             println("Sucesso ao deletar meta")
         }catch (e: Exception){
@@ -72,16 +73,11 @@ class GoalRepository {
     }
 
     suspend fun getGoal(
-        user: UserModel
     ): List<GoalModel>{
 
-        val userID = user.id
+
         try {
-            val getAll = db.collection("Goals")
-                .whereEqualTo(
-                    "idUser",
-                    userID
-                )
+            val getAll = collection
                 .get().await()
             if (getAll.isEmpty){
                 println("Nenhum registro encontrado!")

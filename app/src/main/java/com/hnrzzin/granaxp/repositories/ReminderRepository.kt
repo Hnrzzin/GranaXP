@@ -1,5 +1,6 @@
 package com.hnrzzin.granaxp.repositories
 
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.ReminderModel
 import com.hnrzzin.granaxp.model.TransactionModel
@@ -8,14 +9,14 @@ import kotlinx.coroutines.tasks.await
 import java.time.LocalDate
 import java.math.BigDecimal
 
-class ReminderRepository {
+class ReminderRepository(private val userID: String){
 
-    val db = FirebaseFirestore.getInstance()
-
+    private val db = FirebaseFirestore.getInstance()
+    private val collection = db.collection("Users").document(userID).collection("Reminders")
     suspend fun createReminder(
         title: String,
         isCompleted: Boolean,
-        dueDate: LocalDate,
+        dueDate: Timestamp,
         amount: BigDecimal
     ){
         val reminder = ReminderModel(
@@ -25,7 +26,7 @@ class ReminderRepository {
             amount = amount
         )
         try {
-            db.collection("Reminders")
+            collection
                 .add(reminder).await()
             println("Sucesso ao criar um lembrete!")
         }catch (e: Exception){
@@ -45,24 +46,20 @@ class ReminderRepository {
             "amount" to reminder.amount
         )
         try {
-            db.collection("Reminders").document(reminderID)
+            collection.document(reminderID)
                 .update(updates).await()
             println("Sucesso ao atualizar  um lembrete!")
         }catch (e: Exception){
-            println("Falha ao adicionar um lembrete: $e")
+            println("Falha ao atualizar um lembrete: $e")
         }
 
     }
 
     suspend fun getReminder(
-        user: UserModel
     ): List<ReminderModel>{
-        val userID = requireNotNull(user.id){"ID não pode ser nulo!"}
         try {
-            val getAll = db.collection("Reminders").whereEqualTo(
-                "idUser",
-                userID
-            ).get().await()
+            val getAll = collection
+                .get().await()
             if (getAll.isEmpty){
                 println("Nenhum registro encontrado!")
                 return emptyList()
@@ -84,12 +81,12 @@ class ReminderRepository {
     ){
         val reminderID = requireNotNull(reminder.id){"O ID não pode ser nulo"}
         try {
-            db.collection("Reminders")
+            collection
                 .document(reminderID)
                 .delete().await()
-            println("Sucesso ao deletar a meta!")
+            println("Sucesso ao deletar o lembrete!")
         } catch (e: Exception) {
-            println("Falha ao deletar a meta: $e")
+            println("Falha ao deletar o lembrete: $e")
         }
 
     }

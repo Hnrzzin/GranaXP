@@ -1,6 +1,7 @@
 package com.hnrzzin.granaxp.repositories
 
 import com.google.firebase.Firebase
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.BudgetModel
 import com.hnrzzin.granaxp.model.BudgetType
@@ -10,17 +11,17 @@ import kotlinx.coroutines.tasks.await
 import java.math.BigDecimal
 import java.time.LocalDate
 
-class BudgetRepository {
+class BudgetRepository(private val userID: String) {
 
-    val db = FirebaseFirestore.getInstance()
-
+    private val db = FirebaseFirestore.getInstance()
+    private val collection = db.collection("Users").document(userID).collection("Budgets")
     suspend fun createBudget(
         title: String,
         amount: BigDecimal,
         type: BudgetType,
         dueDay: Int? = null,
         isPaid: Boolean? = null,
-        lastPaymentDate: LocalDate? = null
+        lastPaymentDate: Timestamp? = null
 
     ){
         // antes de inserir eu preciso colocar alguma validação? tipo, pra distinguir se o que o usuario criar é fixo ou variavel?
@@ -33,7 +34,7 @@ class BudgetRepository {
                     isPaid = isPaid,
                     lastPaymentDate = lastPaymentDate
                 )
-                db.collection("Budgets")
+                collection
                     .add(budget).await() // cria um id automatico para a transação
                 println("Sucesso ao adicionar a transação")
 
@@ -52,7 +53,7 @@ class BudgetRepository {
             "dueDay" to budget.dueDay
         )
         try {
-            db.collection("Budgets").document(budgetID)
+            collection.document(budgetID)
                 .update(updates).await()
             println("Sucesso ao atualizar a planilha")
         } catch (e: Exception) {
@@ -66,7 +67,7 @@ class BudgetRepository {
     ){
         val budgetID = requireNotNull(budget.id) { "ID não pode ser nulo!" }
         try {
-            db.collection("Budgets").document(budgetID)
+            collection.document(budgetID)
                 .delete().await()
             println("Sucesso ao deletar a planilha")
         } catch (e: Exception) {
@@ -75,16 +76,11 @@ class BudgetRepository {
     }
 
     suspend fun getBudget(
-        user: UserModel
     ): List<BudgetModel>
     {
-        val userID = user.id
+
         try {
-            val getAll = db.collection("Budgets")
-                .whereEqualTo(
-                    "idUser",
-                    userID
-                )
+            val getAll = collection
                 .get().await()
             if (getAll.isEmpty) {
                 println("Nenhum registro encontrado!")

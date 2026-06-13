@@ -5,11 +5,11 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.UserModel
 import kotlinx.coroutines.tasks.await
 
-class UserRepository {
+class UserRepository(private val userId: String) {
 
 
-    val db = FirebaseFirestore.getInstance()
-    val collection = db.collection("Users")
+    private val db = FirebaseFirestore.getInstance()
+    private val collection = db.collection("Users")
 
     suspend fun createUser(
         user: UserModel,
@@ -22,34 +22,24 @@ class UserRepository {
         }
 
     }
-    suspend fun updateXP(
-        userId: String,
-        newXP: Int
 
-    ) {
-        val map = mapOf("userXP" to newXP)
-        try {
-            collection
-                .document(userId)
-                .update(map).await()
-            println("Sucesso ao atualizar o XP")
-        } catch (e: Exception) {
-            println("Falha ao atualizar o XP: $e")
-        }
-    }
 
-    suspend fun updateLevel(
+    suspend fun updateUser(
         userId: String,
+        newXP: Int,
         newLevel: Int
-    ) {
-        val map = mapOf("userLevel" to newLevel)
+
+    ){
+        val map = mapOf(
+                    "userXP" to newXP,
+                    "userLevel" to newLevel)
         try {
             collection
                 .document(userId)
                 .update(map).await()
-            println("Sucesso ao atualizar o nível da conta")
+            println("Sucesso ao atualizar o usuário")
         } catch (e: Exception) {
-            println("Falha ao atualizar o nível da conta: $e")
+            println("Falha ao atualizar o usuário: $e")
         }
     }
 
@@ -67,7 +57,6 @@ class UserRepository {
     }
 
     suspend fun getUser(
-        userId: String
     ): UserModel? {
         try {
             val getAll = collection.document(userId)

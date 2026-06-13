@@ -1,24 +1,22 @@
 package com.hnrzzin.granaxp.repositories
-import java.time.LocalDate
+import com.google.firebase.Timestamp
 import java.math.BigDecimal
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.TransactionModel
 import kotlinx.coroutines.tasks.await
 import com.hnrzzin.granaxp.model.TransactionType
-import com.hnrzzin.granaxp.model.UserModel
-import kotlin.jvm.java
 
-class TransactionRepository {
+
+class TransactionRepository(private val userID: String) {
     // instancia do bd
-    val db = FirebaseFirestore.getInstance()
-
+    private val db = FirebaseFirestore.getInstance()
+    private val collection = db.collection("Users").document(userID).collection("Transactions")
     // metodo responsavel por fazer as inserções no bd
     suspend fun createTransaction(
         // contrutor pra gente criar uma transação
         title: String,
         amount: BigDecimal,
         type: TransactionType,
-        date: LocalDate,
         category: String
     ) {
         // montando o obj
@@ -26,12 +24,12 @@ class TransactionRepository {
             title = title,
             amount = amount,
             type = type,
-            date = date,
+            date = Timestamp.now(),
             category = category
         )
         // fazendo a criação
         try {
-            db.collection("Transactions")
+            collection
                 .add(transaction).await() // cria um id automatico para a transação
             println("Sucesso ao adicionar a transação")
         } catch (e: Exception) {
@@ -57,7 +55,7 @@ class TransactionRepository {
         )
         // atualização no banco
         try {
-            db.collection("Transactions")
+           collection
                 .document(transactionId)
                 .update(updates).await()
             println("Sucesso ao atualizar a transação")
@@ -75,7 +73,7 @@ class TransactionRepository {
         val transactionId = requireNotNull(transaction.id) { "ID não pode ser nulo!" }
         // deleção no banco
         try {
-            db.collection("Transactions")
+            collection
                 .document(transactionId)
                 .delete().await()
             println("Sucesso ao deletar a transação")
@@ -88,27 +86,20 @@ class TransactionRepository {
     // get do banco
     suspend fun getTransactions(
         // construtor do usuario pra pegar o id dele (a fim de mostrar todas as trabszaçpes)
-        user: UserModel,
         ): List<TransactionModel> // retorna uma lista
         {
 
-        val userID = user.id
         // fazendo a busca
         try {
-            val getAll = db.collection("Transactions")
-                .whereEqualTo(
-                    "idUser",
-                    userID
-                )
+            val getAll = collection
                 .get().await()
             if (getAll.isEmpty) {
                 println("Nenhum registro encontrado!")
                 return emptyList()
             }else{
-                val lista = getAll.map { documento -> documento.toObject(TransactionModel::class.java) }
-                val listaSemNull = lista.filterNotNull()
+                val lista = getAll.mapNotNull { documento -> documento.toObject(TransactionModel::class.java) }
                 println("Sucesso ao buscar a transações")
-                return listaSemNull
+                return lista
             }
 
         } catch (e: Exception) {

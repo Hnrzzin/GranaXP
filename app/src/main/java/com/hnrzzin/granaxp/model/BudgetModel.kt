@@ -1,15 +1,16 @@
 package com.hnrzzin.granaxp.model
 
+import com.google.firebase.Timestamp
 import java.math.BigDecimal
-import java.time.LocalDate
+
 
 
 data class BudgetModel(
     val id: String? = null,
-    val title: String,
-    val amount: BigDecimal,
-    val type: BudgetType,
+    val title: String= "",
+    val amount: BigDecimal = BigDecimal.ZERO,
+    val type: BudgetType = BudgetType.VARIÁVEL,
     val dueDay: Int? = null,
     val isPaid: Boolean? = null,
-    val lastPaymentDate: LocalDate? = null
+    val lastPaymentDate: Timestamp? = null
 )

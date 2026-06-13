@@ -9,7 +9,7 @@ import kotlinx.coroutines.tasks.await
 
 class UserAuth {
 
-    val auth = FirebaseAuth.getInstance()
+    private val auth = FirebaseAuth.getInstance()
 
     suspend fun createAuthUserWithEmail(
         email: String,
@@ -43,7 +43,7 @@ class UserAuth {
     suspend fun loginWithGoogle(credential: Credential)
     : FirebaseUser?
     {
-        if (credential is CustomCredential && credential.type == "TYPE_GOOGLE_ID_TOKEN_CREDENTIAL") {
+        if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
             val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
             val idToken = googleIdTokenCredential.idToken
 
