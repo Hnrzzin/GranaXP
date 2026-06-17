@@ -1,15 +1,12 @@
 package com.hnrzzin.granaxp.repositories
 
-import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.BudgetModel
-import com.hnrzzin.granaxp.model.BudgetType
-import com.hnrzzin.granaxp.model.TransactionModel
+import com.hnrzzin.granaxp.enums.BudgetType
 import com.hnrzzin.granaxp.model.UserModel
 import kotlinx.coroutines.tasks.await
 import java.math.BigDecimal
-import java.time.LocalDate
 
 class BudgetRepository(private val userID: String) {
 

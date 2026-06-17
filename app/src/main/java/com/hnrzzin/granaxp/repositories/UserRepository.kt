@@ -15,7 +15,7 @@ class UserRepository(private val userId: String) {
         user: UserModel,
     ) {
         try {
-            collection.add(user).await()
+            collection.document(user.id).set(user).await()
             println("Sucesso ao adicionar usuário")
         } catch (e: Exception) {
             println("Falha ao adicionar usuário: $e")

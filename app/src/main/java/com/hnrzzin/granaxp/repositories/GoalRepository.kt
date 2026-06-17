@@ -2,12 +2,10 @@ package com.hnrzzin.granaxp.repositories
 
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
-import com.hnrzzin.granaxp.model.GoalDeadline
+import com.hnrzzin.granaxp.enums.GoalDeadline
 import com.hnrzzin.granaxp.model.GoalModel
-import com.hnrzzin.granaxp.model.UserModel
 import kotlinx.coroutines.tasks.await
 import java.math.BigDecimal
-import java.time.LocalDate
 
 class GoalRepository(private val userID: String) {
     private val db = FirebaseFirestore.getInstance()

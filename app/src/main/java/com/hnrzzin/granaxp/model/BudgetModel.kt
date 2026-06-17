@@ -1,6 +1,7 @@
 package com.hnrzzin.granaxp.model
 
 import com.google.firebase.Timestamp
+import com.hnrzzin.granaxp.enums.BudgetType
 import java.math.BigDecimal
 
 

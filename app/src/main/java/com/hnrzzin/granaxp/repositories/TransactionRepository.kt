@@ -4,7 +4,7 @@ import java.math.BigDecimal
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.TransactionModel
 import kotlinx.coroutines.tasks.await
-import com.hnrzzin.granaxp.model.TransactionType
+import com.hnrzzin.granaxp.enums.TransactionType
 
 
 class TransactionRepository(private val userID: String) {

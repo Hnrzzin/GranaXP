@@ -10,16 +10,58 @@ ESTRUTURA DO BANCO:
       📁 progressoLicoes
       📁 progressoConquistas
 
-ESTRUTURA DOS MODELS:
-📁 model
-   - TransactionModel ✓
-   - GoalModel ✓
-   - ReminderModel ✓
-   - UserModel ✓
-   - LessonModel ✓
-   - LessonProgressModel ✓
-   - AchievementModel ✓
-   - AchievementProgressModel ✓
-   - TransactionType (enum) ✓
-   - GoalTermModel (enum) ✓
-   - CategoryModel (enum) ✓
+
+ESTRUTURA DO PROJETO:
+com.hnrzzin.granaxp/
+│
+├
+│
+│
+├── 📂 navigation
+│   └── AppNavigation.kt
+│
+├── 📂 enums/                    # Enums compartilhados por todo o app
+│   ├── TransactionType.kt
+│   ├── BudgetType.kt
+│   └── GoalDeadline.kt
+│
+├── 📂 model/                    # Modelos de dados (Data Classes)
+│   ├── AchievementModel.kt
+│   ├── AchievementProgressModel.kt
+│   ├── BudgetModel.kt
+│   ├── GoalModel.kt
+│   ├── LessonModel.kt
+│   ├── LessonProgressModel.kt
+│   ├── ReminderModel.kt
+│   ├── TransactionModel.kt
+│   └── UserModel.kt
+│
+├── 📂 repositories/             # Classes que gerenciam as chamadas ao Firebase
+│   ├── AchievementRepository.kt
+│   ├── UserAuth.kt
+│   ├── BudgetRepository.kt
+│   ├── GoalRepository.kt
+│   ├── LessonRepository.kt
+│   ├── ReminderRepository.kt
+│   ├── TransactionRepository.kt
+│   └── UserRepository.kt
+│
+├── 📂 ui.theme/                       # Camada de Interface (Telas e Componentes)
+│   ├── 📂 screens/
+│   │   ├── 📂 auth/
+│   │   │    ├── RegisterScreen.kt.kt
+│   │   │    ├── LoginScreen.kt.kt
+│   │   ├── StubScreens.kt
+│   │   ├── (Futuramente outras telas)
+│   │
+│   └───├── Color.kt
+│       ├── Theme.kt
+│       ├── Type.kt
+│
+│
+│
+│
+└── 📂 viewmodel/                # Gerentes de Estado (Pontes entre UI e Repository)
+    │   (Futuramente outros VM)
+    │   AuthViewModel.kt
+    └── TransactionViewModel.kt

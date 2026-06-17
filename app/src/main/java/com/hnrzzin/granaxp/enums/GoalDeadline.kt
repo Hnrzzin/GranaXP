@@ -1,4 +1,4 @@
-package com.hnrzzin.granaxp.model
+package com.hnrzzin.granaxp.enums
 
 enum class GoalDeadline {
     // modelo responsavel pelas metas (curto, medio e longo prazo)
