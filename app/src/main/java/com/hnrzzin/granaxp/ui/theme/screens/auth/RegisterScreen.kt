@@ -32,14 +32,14 @@ fun RegisterScreen(
     viewModel: AuthViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    var name           by remember { mutableStateOf("") }
-    var email          by remember { mutableStateOf("") }
-    var password       by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
 
+    // 1. Substituído AuthUiState.Success por Authenticated e removido o resetState()
     LaunchedEffect(uiState) {
-        if (uiState is AuthUiState.Success) {
-            viewModel.resetState()
+        if (uiState is AuthUiState.Authenticated) {
             onRegisterSuccess()
         }
     }
@@ -119,7 +119,8 @@ fun RegisterScreen(
                 }
 
                 Button(
-                    onClick = { viewModel.registerWithEmail(email, password, name) },
+                    // 2. Chamada da função de registro corrigida para a nova assinatura e ordem de parâmetros
+                    onClick = { viewModel.register(name = name, email = email, pass = password) },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = GreenPrimary),

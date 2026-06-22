@@ -16,17 +16,29 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.hnrzzin.granaxp.enums.GoalDeadline
-import com.hnrzzin.granaxp.ui.theme.states.GoalState
+import com.hnrzzin.granaxp.model.GoalModel
+import com.hnrzzin.granaxp.model.GoalDeadline
 import com.hnrzzin.granaxp.viewmodel.GoalViewModel
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
+import com.hnrzzin.granaxp.viewmodel.GoalUiState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 
 @Composable
 fun AddGoalScreen(
     viewModel: GoalViewModel = viewModel(),
     onNavigateBack: () -> Unit = {}
 ) {
-    val actionState by viewModel.goalState.collectAsState()
+    val actionState by viewModel.uiState.collectAsState()
 
+    var deadlineType by remember { mutableStateOf(GoalDeadline.CURTO) }
+    var title by remember { mutableStateOf("") }
+    var targetAmount by remember { mutableStateOf("") }
+    // 1. ADICIONE ESTAS DUAS VARIÁVEIS QUE FALTAVAM:
+    var currentAmount by remember { mutableStateOf("") }
+    var deadlineDate by remember { mutableStateOf("") }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -51,17 +63,17 @@ fun AddGoalScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Seleção de Prazo (Tabs)
+            // Seleção de Prazo (Tabs)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 GoalDeadline.entries.forEach { deadline ->
                     Button(
-                        onClick = { viewModel.deadlineType = deadline },
+                        onClick = { deadlineType = deadline }, // Alterado
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (viewModel.deadlineType == deadline)
+                            containerColor = if (deadlineType == deadline) // Alterado
                                 MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                         )
                     ) {
-                        // Exibição amigável do Enum
                         Text(if (deadline == GoalDeadline.CURTO) "Curto Prazo" else "Longo Prazo")
                     }
                 }
@@ -69,8 +81,8 @@ fun AddGoalScreen(
 
             // Input: Título
             OutlinedTextField(
-                value = viewModel.title,
-                onValueChange = { viewModel.title = it },
+                value = title, // Alterado
+                onValueChange = { title = it }, // Alterado
                 label = { Text("O que você quer alcançar?") },
                 placeholder = { Text("Ex: Trocar de Carro") },
                 modifier = Modifier.fillMaxWidth()
@@ -79,15 +91,15 @@ fun AddGoalScreen(
             // Inputs: Valores (Linha dupla)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
-                    value = viewModel.targetAmount,
-                    onValueChange = { viewModel.targetAmount = it },
+                    value = targetAmount, // Alterado
+                    onValueChange = { targetAmount = it }, // Alterado
                     label = { Text("Valor Alvo (R$)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.weight(1f)
                 )
                 OutlinedTextField(
-                    value = viewModel.currentAmount,
-                    onValueChange = { viewModel.currentAmount = it },
+                    value = currentAmount, // Alterado
+                    onValueChange = { currentAmount = it }, // Alterado
                     label = { Text("Já Guardado (R$)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.weight(1f)
@@ -96,8 +108,8 @@ fun AddGoalScreen(
 
             // Input: Data
             OutlinedTextField(
-                value = viewModel.deadlineDate,
-                onValueChange = { viewModel.deadlineDate = it },
+                value = deadlineDate, // Alterado
+                onValueChange = { deadlineDate = it }, // Alterado
                 label = { Text("Data Limite") },
                 placeholder = { Text("dd/mm/aaaa") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -107,9 +119,9 @@ fun AddGoalScreen(
             Spacer(modifier = Modifier.weight(1f))
 
             // Erros
-            if (actionState is GoalState.Error) {
+            if (actionState is GoalUiState.Error) { // Alterado de GoalState para GoalUiState
                 Text(
-                    text = (actionState as GoalState.Error).exception.message ?: "Erro ao salvar",
+                    text = (actionState as GoalUiState.Error).message, // Alterado: acessa .message diretamente
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.align(Alignment.CenterHorizontally)
                 )
@@ -117,11 +129,20 @@ fun AddGoalScreen(
 
             // Botão Salvar
             Button(
-                onClick = { viewModel.addGoal() },
+                onClick = {
+                    // Alterado: Invoca a função real do ViewModel passando os estados locais
+                    viewModel.createGoal(
+                        title = title,
+                        targetAmount = targetAmount.toDoubleOrNull() ?: 0.0,
+                        currentAmount = currentAmount.toDoubleOrNull() ?: 0.0,
+                        deadline = deadlineType,
+                        alreadyDeclared = true // Mantendo a regra de negócio do seu createGoal
+                    )
+                },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                enabled = actionState !is GoalState.Loading
+                enabled = actionState !is GoalUiState.Loading // Alterado de GoalState para GoalUiState
             ) {
-                if (actionState is GoalState.Loading) {
+                if (actionState is GoalUiState.Loading) { // Alterado de GoalState para GoalUiState
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
                 } else {
                     Text("Salvar Meta")
@@ -131,9 +152,9 @@ fun AddGoalScreen(
     }
 
     // Navegação após sucesso
-    LaunchedEffect(actionState) {
-        if (actionState is GoalState.Success) {
-            viewModel.resetState()
+    LaunchedEffect(key1 = actionState) {
+        if (actionState is GoalUiState.Success) {
+            // REMOVIDO: viewModel.resetState()
             onNavigateBack()
         }
     }

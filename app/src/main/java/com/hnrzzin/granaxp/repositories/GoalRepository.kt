@@ -1,95 +1,64 @@
 package com.hnrzzin.granaxp.repositories
 
-import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
-import com.hnrzzin.granaxp.enums.GoalDeadline
+import com.hnrzzin.granaxp.model.GoalDeadline
 import com.hnrzzin.granaxp.model.GoalModel
 import kotlinx.coroutines.tasks.await
-import java.math.BigDecimal
 
-class GoalRepository(private val userID: String) {
+class GoalRepository(private val userId: String) {
     private val db = FirebaseFirestore.getInstance()
-    private val collection = db.collection("Users").document(userID).collection("Goals")
-    suspend fun createGoal(
-        deadline: GoalDeadline,
-        title: String,
-        targetAmount: BigDecimal,
-        currentAmount: BigDecimal,
-        targetDate: Timestamp
-    ){
-        val goal = GoalModel(
-            deadline = deadline,
-            title = title,
-            targetAmount = targetAmount,
-            targetDate = targetDate,
-            currentAmount = currentAmount
-        )
-        try {
-            collection
-                .add(goal).await()
-            println("Sucesso ao adicionar meta")
-        }catch (e: Exception){
-            println("Falha ao criar meta: $e")
-        }
+    private val collection = db.collection("users").document(userId).collection("goals")
 
+    suspend fun getGoals(): List<GoalModel> {
+        return try {
+            val result = collection.get().await()
+            result.mapNotNull { it.toObject(GoalModel::class.java) }
+        } catch (e: Exception) {
+            println("Falha ao buscar metas: $e")
+            emptyList()
+        }
     }
 
-    suspend fun editGoal(
-        goal : GoalModel
-    ){
-        val goalUpdated = mapOf(
+    suspend fun createGoal(
+        title: String,
+        targetAmount: Double,
+        currentAmount: Double,
+        deadline: GoalDeadline
+    ) {
+        val goal = GoalModel(
+            title = title,
+            targetAmount = targetAmount,
+            currentAmount = currentAmount,
+            deadline = deadline
+        )
+        try {
+            collection.add(goal).await()
+        } catch (e: Exception) {
+            println("Falha ao criar meta: $e")
+        }
+    }
+
+    suspend fun updateGoal(goal: GoalModel) {
+        if (goal.id.isEmpty()) return
+        val updates = mapOf(
             "title" to goal.title,
             "targetAmount" to goal.targetAmount,
             "currentAmount" to goal.currentAmount,
-            "targetDate" to goal.targetDate
-
+            "deadline" to goal.deadline.name
         )
-        val goalID = requireNotNull(goal.id){"ID não pode ser nulo!"}
         try {
-            collection.document(goalID)
-                .update(goalUpdated).await()
-            println("Sucesso ao atualizar meta")
-        }catch (e: Exception){
+            collection.document(goal.id).update(updates).await()
+        } catch (e: Exception) {
             println("Falha ao atualizar meta: $e")
         }
-
-
     }
 
-    suspend fun deleteGoal(
-        goal : GoalModel
-    ){
-        val goalID = requireNotNull(goal.id){"ID não pode ser nulo!"}
+    suspend fun deleteGoal(goal: GoalModel) {
+        if (goal.id.isEmpty()) return
         try {
-            collection.document(goalID)
-                .delete().await()
-            println("Sucesso ao deletar meta")
-        }catch (e: Exception){
+            collection.document(goal.id).delete().await()
+        } catch (e: Exception) {
             println("Falha ao deletar meta: $e")
         }
-
-    }
-
-    suspend fun getGoal(
-    ): List<GoalModel>{
-
-
-        try {
-            val getAll = collection
-                .get().await()
-            if (getAll.isEmpty){
-                println("Nenhum registro encontrado!")
-                return emptyList()
-            }else{
-                val lista = getAll.map { document -> document.toObject(GoalModel::class.java) }
-                val listaSemNull = lista.filterNotNull()
-                println("Sucesso ao buscar a metas")
-                return listaSemNull
-            }
-        }catch (e : Exception){
-            println("Erro ao buscar a metas")
-            return emptyList()
-        }
-
     }
 }

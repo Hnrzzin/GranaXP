@@ -1,13 +1,13 @@
 package com.hnrzzin.granaxp.model
 
+import com.google.firebase.firestore.DocumentId
+
 data class LessonModel(
-    // modelo responsavel pelas lições de educação finacneira
-
-    val id: String= "",
-    val timeLesson: String= "",
-    val title: String= "",
-    val xpReward: Int = 0,
-
-
+    @DocumentId
+    var id: String = "",
+    var title: String = "",
+    var description: String = "",
+    var videoUrl: String = "",
+    var duration: Int = 0,
+    var category: String = ""
 )
-

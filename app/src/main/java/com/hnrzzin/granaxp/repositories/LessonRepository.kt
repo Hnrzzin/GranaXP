@@ -5,10 +5,10 @@ import com.hnrzzin.granaxp.model.LessonModel
 import com.hnrzzin.granaxp.model.LessonProgressModel
 import kotlinx.coroutines.tasks.await
 
-class LessonRepository(private val userID: String) {
+class LessonRepository(private val userId: String) {
     private val db = FirebaseFirestore.getInstance()
-    private val lessonsCollection = db.collection("Lessons")
-    private val lessonProgress = db.collection("Users").document(userID).collection("LessonProgress")
+    private val lessonsCollection = db.collection("lessons")
+    private val progressCollection = db.collection("users").document(userId).collection("lessonProgress")
 
     suspend fun getLessons(): List<LessonModel> {
         return try {
@@ -22,8 +22,7 @@ class LessonRepository(private val userID: String) {
 
     suspend fun getLessonProgress(): List<LessonProgressModel> {
         return try {
-            val result = lessonProgress
-                .get().await()
+            val result = progressCollection.get().await()
             result.mapNotNull { it.toObject(LessonProgressModel::class.java) }
         } catch (e: Exception) {
             println("Falha ao buscar progresso: $e")
@@ -31,14 +30,25 @@ class LessonRepository(private val userID: String) {
         }
     }
 
-    suspend fun updateLessonProgress(progressId: String, isComplete: Boolean) {
-        val updates = mapOf("lessonComplete" to isComplete)
+    suspend fun updateLessonProgress(progressId: String, isCompleted: Boolean) {
+        if (progressId.isEmpty()) return
+        val updates = mapOf("isCompleted" to isCompleted)
         try {
-            lessonProgress.document(progressId)
-                .update(updates).await()
-            println("Progresso atualizado!")
+            progressCollection.document(progressId).update(updates).await()
         } catch (e: Exception) {
             println("Falha ao atualizar progresso: $e")
+        }
+    }
+
+    suspend fun createLessonProgress(lessonId: String) {
+        val progress = LessonProgressModel(
+            userId = userId,
+            lessonId = lessonId
+        )
+        try {
+            progressCollection.add(progress).await()
+        } catch (e: Exception) {
+            println("Falha ao criar progresso: $e")
         }
     }
 }

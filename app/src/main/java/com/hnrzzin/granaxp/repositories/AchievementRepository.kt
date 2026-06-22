@@ -5,41 +5,77 @@ import com.hnrzzin.granaxp.model.AchievementModel
 import com.hnrzzin.granaxp.model.AchievementProgressModel
 import kotlinx.coroutines.tasks.await
 
-class AchievementRepository(val userID: String) {
+class AchievementRepository {
     private val db = FirebaseFirestore.getInstance()
-    private val achievementsCollection = db.collection("Achievements")
-    private val achievementProgress = db.collection("Users").document(userID).collection("AchievementProgress")
 
     suspend fun getAchievements(): List<AchievementModel> {
         return try {
-            val result = achievementsCollection.get().await()
-            result.mapNotNull { it.toObject(AchievementModel::class.java) }
+            db.collection("achievements").get().await().toObjects(AchievementModel::class.java)
         } catch (e: Exception) {
-            println("Falha ao buscar conquistas: $e")
+            println("Error fetching achievements: ${e.message}")
             emptyList()
         }
     }
 
-    suspend fun getAchievementProgress(): List<AchievementProgressModel> {
+    suspend fun getAchievementProgress(userId: String): List<AchievementProgressModel> {
         return try {
-            val result = achievementProgress
-                .get().await()
-            result.mapNotNull { it.toObject(AchievementProgressModel::class.java) }
+            db.collection("achievementProgress")
+                .whereEqualTo("userId", userId)
+                .get()
+                .await()
+                .toObjects(AchievementProgressModel::class.java)
         } catch (e: Exception) {
-            println("Falha ao buscar progresso: $e")
+            println("Error fetching achievement progress: ${e.message}")
             emptyList()
         }
     }
 
-    suspend fun updateAchievementProgress(progressId: String, isComplete: Boolean) {
-        val updates = mapOf("achievementComplete" to isComplete)
-        try {
-            achievementProgress.document(progressId)
-                .update(updates).await()
-            println("Conquista atualizada!")
+    suspend fun createAchievementProgress(
+        userId: String,
+        achievementId: String,
+        currentProgress: Int,
+        isUnlocked: Boolean
+    ): Boolean {
+        return try {
+            val progress = AchievementProgressModel(
+                userId = userId,
+                achievementId = achievementId,
+                currentProgress = currentProgress,
+                isUnlocked = isUnlocked
+            )
+            db.collection("achievementProgress").add(progress).await()
+            true
         } catch (e: Exception) {
-            println("Falha ao atualizar conquista: $e")
+            println("Error creating achievement progress: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun updateAchievementProgress(
+        progressId: String,
+        currentProgress: Int,
+        isUnlocked: Boolean
+    ): Boolean {
+        return try {
+            db.collection("achievementProgress").document(progressId)
+                .update("currentProgress", currentProgress, "isUnlocked", isUnlocked)
+                .await()
+            true
+        } catch (e: Exception) {
+            println("Error updating achievement progress: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun unlockAchievement(progressId: String): Boolean {
+        return try {
+            db.collection("achievementProgress").document(progressId)
+                .update("isUnlocked", true)
+                .await()
+            true
+        } catch (e: Exception) {
+            println("Error unlocking achievement: ${e.message}")
+            false
         }
     }
 }
-

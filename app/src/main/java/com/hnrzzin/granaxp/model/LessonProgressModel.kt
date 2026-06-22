@@ -1,8 +1,13 @@
 package com.hnrzzin.granaxp.model
 
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.DocumentId
+
 data class LessonProgressModel(
-    val referenceLessonId: String,
-    val idUser: String,
-    val id: String,
-    val lessonComplete: Boolean
+    @DocumentId
+    var id: String = "",
+    var userId: String = "",
+    var lessonId: String = "",
+    var isCompleted: Boolean = false,
+    var lastAccessed: Timestamp = Timestamp.now()
 )

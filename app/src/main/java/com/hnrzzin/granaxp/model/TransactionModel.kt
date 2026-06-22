@@ -1,22 +1,17 @@
 package com.hnrzzin.granaxp.model
 import com.google.firebase.Timestamp
-import com.hnrzzin.granaxp.enums.TransactionType
-import java.math.BigDecimal
-
-
-
+import com.google.firebase.firestore.DocumentId
+enum class TransactionType {
+    RECEITA,
+    DESPESA
+}
 data class TransactionModel(
-    // modelo responsavel pelas transações (despezas/receitas)
-
-    val id: String? = null,
+    @DocumentId
+    var id: String = "",
     val title: String = "",
-    val amount: BigDecimal= BigDecimal.ZERO,
+    val category: String = "",
+    val amount: Double = 0.0,
     val type: TransactionType = TransactionType.DESPESA,
     val date: Timestamp = Timestamp.now(),
-    val category: String = ""
+    val isAutomatic: Boolean = false
 )
-
-
-
-
-

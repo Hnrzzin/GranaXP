@@ -8,7 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import com.hnrzzin.granaxp.ui.navigation.AppNavigation
+import androidx.compose.ui.tooling.preview.Preview
+import com.hnrzzin.granaxp.navigation.AppNavigation
 import com.hnrzzin.granaxp.ui.theme.GranaXPTheme // Verifique se o caminho do seu tema está correto
 
 class MainActivity : ComponentActivity() {

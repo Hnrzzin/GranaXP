@@ -1,10 +1,9 @@
 package com.hnrzzin.granaxp.ui.theme.screens
 
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.items // Import crucial adicionado para a lista
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
@@ -18,10 +17,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hnrzzin.granaxp.model.TransactionModel
-import com.hnrzzin.granaxp.enums.TransactionType
-import com.hnrzzin.granaxp.ui.theme.states.TransactionState
-import com.hnrzzin.granaxp.ui.theme.states.TransactionListState
+import com.hnrzzin.granaxp.model.TransactionType
 import com.hnrzzin.granaxp.viewmodel.TransactionViewModel
+import com.hnrzzin.granaxp.viewmodel.TransactionUiState // Import do estado unificado correto
 
 @Composable
 fun TransactionsScreen(
@@ -30,11 +28,12 @@ fun TransactionsScreen(
     onNavigateBack: () -> Unit = {},
     onNavigateToAddTransaction: () -> Unit = {}
 ) {
-    val listState by viewModel.transactionListState.collectAsState()
-    val actionState by viewModel.transactionState.collectAsState()
+    // 1. Substituído o duplo estado pelo Single Source of Truth
+    val uiState by viewModel.uiState.collectAsState()
 
+    // 2. Corrigida a função para a assinatura real do ViewModel
     LaunchedEffect(Unit) {
-        viewModel.getTransactions()
+        viewModel.fetchTransactions()
     }
 
     Column(
@@ -65,15 +64,15 @@ fun TransactionsScreen(
         }
 
         // Content
-        when (listState) {
-            is TransactionListState.Loading -> {
+        // 3. Implementação limpa do when com smart cast na sealed class
+        when (val state = uiState) {
+            is TransactionUiState.Loading -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
             }
-            is TransactionListState.Success -> {
-                val transactions = (listState as TransactionListState.Success).transactions
-                if (transactions.isEmpty()) {
+            is TransactionUiState.Success -> {
+                if (state.transactions.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             text = "Nenhuma transação registrada",
@@ -87,30 +86,31 @@ fun TransactionsScreen(
                             .padding(horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(transactions) { transaction ->
+                        items(state.transactions) { transaction ->
                             TransactionListItem(
                                 transaction = transaction,
+                                // Função de delete já existente e compatível
                                 onDelete = { viewModel.deleteTransaction(transaction) }
                             )
                         }
                     }
                 }
             }
-            is TransactionListState.Error -> {
+            is TransactionUiState.Error -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(text = "Erro ao carregar transações", color = MaterialTheme.colorScheme.error)
+                    // Aproveitando a propriedade message do estado de erro
+                    Text(
+                        text = state.message,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(16.dp)
+                    )
                 }
             }
-            else -> {}
         }
     }
 
-    // Handle messages like Delete Success
-    LaunchedEffect(actionState) {
-        if (actionState is TransactionState.Success || actionState is TransactionState.Error) {
-            viewModel.resetState()
-        }
-    }
+    // 4. O bloco LaunchedEffect que chamava o resetState() inexistente foi deletado,
+    // pois a arquitetura do ViewModel já reage chamando o fetchTransactions() após ações como delete.
 }
 
 @Composable

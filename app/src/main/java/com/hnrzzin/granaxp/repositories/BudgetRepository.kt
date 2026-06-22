@@ -3,163 +3,91 @@ package com.hnrzzin.granaxp.repositories
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.BudgetModel
-import com.hnrzzin.granaxp.enums.BudgetType
-import com.hnrzzin.granaxp.model.UserModel
+import com.hnrzzin.granaxp.model.BudgetPlanType
 import kotlinx.coroutines.tasks.await
-import java.math.BigDecimal
 
-class BudgetRepository(private val userID: String) {
-
+class BudgetRepository(private val userId: String) {
     private val db = FirebaseFirestore.getInstance()
-    private val collection = db.collection("Users").document(userID).collection("Budgets")
-    suspend fun createBudget(
-        title: String,
-        amount: BigDecimal,
-        type: BudgetType,
-        dueDay: Int? = null,
-        isPaid: Boolean? = null,
-        lastPaymentDate: Timestamp? = null
+    private val collection = db.collection("users").document(userId).collection("budgets")
 
-    ){
-        // antes de inserir eu preciso colocar alguma validação? tipo, pra distinguir se o que o usuario criar é fixo ou variavel?
-        try {
-                val budget = BudgetModel(
-                    title = title,
-                    amount = amount,
-                    type = type,
-                    dueDay = dueDay,
-                    isPaid = isPaid,
-                    lastPaymentDate = lastPaymentDate
-                )
-                collection
-                    .add(budget).await() // cria um id automatico para a transação
-                println("Sucesso ao adicionar a transação")
-
+    suspend fun getBudgets(): List<BudgetModel> {
+        return try {
+            val result = collection.get().await()
+            result.mapNotNull { it.toObject(BudgetModel::class.java) }
         } catch (e: Exception) {
-            println("Falha ao adicionar a transação: $e")
+            println("Falha ao buscar orçamentos: $e")
+            emptyList()
         }
     }
 
-    suspend fun editBudget(
-        budget: BudgetModel
-    ){
-        val budgetID = requireNotNull(budget.id) { "ID não pode ser nulo!" }
-        val updates = mapOf(
-            "title" to budget.title,
-            "amount" to budget.amount,
-            "dueDay" to budget.dueDay
+    suspend fun getFixedBudgets(): List<BudgetModel> {
+        return try {
+            val result = collection
+                .whereEqualTo("type", BudgetPlanType.FIXO.name)
+                .get().await()
+            result.mapNotNull { it.toObject(BudgetModel::class.java) }
+        } catch (e: Exception) {
+            println("Falha ao buscar gastos fixos: $e")
+            emptyList()
+        }
+    }
+
+    suspend fun getUnpaidBudgets(): List<BudgetModel> {
+        return try {
+            val result = collection
+                .whereEqualTo("type", BudgetPlanType.FIXO.name)
+                .whereEqualTo("isPaid", false)
+                .get().await()
+            result.mapNotNull { it.toObject(BudgetModel::class.java) }
+        } catch (e: Exception) {
+            println("Falha ao buscar gastos não pagos: $e")
+            emptyList()
+        }
+    }
+
+    suspend fun createBudget(
+        category: String,
+        limitAmount: Double,
+        type: BudgetPlanType,
+        dueDay: Int? = null
+    ) {
+        val budget = BudgetModel(
+            category = category,
+            limitAmount = limitAmount,
+            type = type,
+            dueDay = dueDay,
+            isPaid = if (type == BudgetPlanType.FIXO) false else null
         )
         try {
-            collection.document(budgetID)
-                .update(updates).await()
-            println("Sucesso ao atualizar a planilha")
+            collection.add(budget).await()
         } catch (e: Exception) {
-            println("Falha ao atualizar a planilha: $e")
+            println("Falha ao criar orçamento: $e")
         }
-
     }
 
-    suspend fun deleteBudget(
-        budget: BudgetModel
-    ){
-        val budgetID = requireNotNull(budget.id) { "ID não pode ser nulo!" }
+    suspend fun updateBudget(budget: BudgetModel) {
+        if (budget.id.isEmpty()) return
+        val updates = mapOf(
+            "category" to budget.category,
+            "limitAmount" to budget.limitAmount,
+            "spentAmount" to budget.spentAmount,
+            "dueDay" to budget.dueDay,
+            "isPaid" to budget.isPaid,
+            "lastPaymentDate" to budget.lastPaymentDate
+        )
         try {
-            collection.document(budgetID)
-                .delete().await()
-            println("Sucesso ao deletar a planilha")
+            collection.document(budget.id).update(updates).await()
         } catch (e: Exception) {
-            println("Falha ao deletar a planilha: $e")
+            println("Falha ao atualizar orçamento: $e")
         }
     }
 
-    suspend fun getBudget(
-    ): List<BudgetModel>
-    {
-
+    suspend fun deleteBudget(budget: BudgetModel) {
+        if (budget.id.isEmpty()) return
         try {
-            val getAll = collection
-                .get().await()
-            if (getAll.isEmpty) {
-                println("Nenhum registro encontrado!")
-                return emptyList()
-            }else{
-                val lista = getAll.map { documento -> documento.toObject(BudgetModel::class.java) }
-                val listaSemNull = lista.filterNotNull()
-                println("Sucesso ao buscar a transações")
-                return listaSemNull
-            }
-
+            collection.document(budget.id).delete().await()
         } catch (e: Exception) {
-            println("Falha ao buscar a transações $e")
-            return emptyList()
-        }
-
-    }
-
-    suspend fun getUnpaidBudgets(
-        user: UserModel
-    ): List<BudgetModel>{
-    // funçao auxiliar respponsavel por verfificar se o pagamento ja foi feito (isPaid)
-        val userID = user.id
-        try {
-            val allFixed = db.collection("Budgets")
-                .whereEqualTo(
-                    "idUser",
-                    userID
-                )
-                .whereEqualTo(
-                    "isPaid",
-                    false
-                )
-                .get().await()
-            if (allFixed.isEmpty) {
-                println("Nenhum registro encontrado!")
-                return emptyList()
-            }
-            val lista = allFixed.map { documento -> documento.toObject(BudgetModel::class.java) }
-            val listaSemNull = lista.filterNotNull()
-            println("Sucesso ao buscar a transações")
-            return listaSemNull
-
-        } catch (e: Exception) {
-            println("Falha ao buscar a transações $e")
-            return emptyList()
-        }
-
-    }
-
-    suspend fun getFixedBudget(
-        user: UserModel,
-    ): List<BudgetModel>
-    {
-        val userID = user.id
-        try {
-            val getAll = db.collection("Budgets")
-                .whereEqualTo(
-                    "idUser",
-                    userID
-                )
-                .whereEqualTo(
-                    "type",
-                    "FIXO"
-                )
-
-                .get().await()
-            if (getAll.isEmpty) {
-                println("Nenhum registro encontrado!")
-                return emptyList()
-            }else{
-                val lista = getAll.map { documento -> documento.toObject(BudgetModel::class.java) }
-                val listaSemNull = lista.filterNotNull()
-                println("Sucesso ao buscar a transações")
-                return listaSemNull
-            }
-
-        } catch (e: Exception) {
-            println("Falha ao buscar a transações $e")
-            return emptyList()
+            println("Falha ao deletar orçamento: $e")
         }
     }
-
-
 }

@@ -3,15 +3,15 @@ package com.hnrzzin.granaxp.ui.theme
 import androidx.compose.ui.graphics.Color
 
 object GranaXPColors {
-    // Primary Colors
-    val Primary = Color(0xFF6200EE)
-    val PrimaryDark = Color(0xFF3700B3)
-    val PrimaryLight = Color(0xFF9C27B0)
+    // Primary Colors (Tema Financeiro - Tons de Verde Esmeralda)
+    val Primary = Color(0xFF00C853)
+    val PrimaryDark = Color(0xFF009624)
+    val PrimaryLight = Color(0xFF5EFB82)
 
-    // Secondary Colors
-    val Secondary = Color(0xFF03DAC6)
-    val SecondaryDark = Color(0xFF018786)
-    val SecondaryLight = Color(0xFF66FFF9)
+    // Secondary Colors (Gamificação e XP - Tons de Dourado/Laranja)
+    val Secondary = Color(0xFFFFB300)
+    val SecondaryDark = Color(0xFFFF8F00)
+    val SecondaryLight = Color(0xFFFFE54C)
 
     // Background & Surface
     val Background = Color(0xFFFAFAFA)
@@ -24,11 +24,11 @@ object GranaXPColors {
     val OnPrimary = Color(0xFFFFFFFF)
 
     // Status Colors
-    val Error = Color(0xFFB3261E)
-    val ErrorLight = Color(0xFFF9DEDC)
-    val Success = Color(0xFF4CAF50)
-    val Warning = Color(0xFFFFC107)
-    val Info = Color(0xFF2196F3)
+    val Error = Color(0xFFD32F2F)
+    val ErrorLight = Color(0xFFFFEBEE)
+    val Success = Color(0xFF388E3C)
+    val Warning = Color(0xFFFBC02D)
+    val Info = Color(0xFF1976D2)
 
     // Neutral Colors
     val Gray50 = Color(0xFFFAFAFA)

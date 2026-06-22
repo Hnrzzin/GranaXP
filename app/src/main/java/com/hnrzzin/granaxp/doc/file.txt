@@ -4,11 +4,11 @@ ESTRUTURA DO BANCO:
 📁 conquistas (coleção raiz) -> será referenciado atraves do id, pois se tratam das mesmas informações para todos os usuarios
 📁 usuarios -> coleção responsavel por guardar as subcoleções dos usuarios (dados)
    📄 usuario1 -> informações de login do usuario
-      📁 transacoes
-      📁 metas
-      📁 lembretes
-      📁 progressoLicoes
-      📁 progressoConquistas
+      📁 transacoes -> subcollection de usuarios
+      📁 metas -> subcollection de usuarios
+      📁 lembretes -> subcollection de usuarios
+      📁 progressoLicoes -> subcollection de usuarios
+      📁 progressoConquistas -> subcollection de usuarios
 
 
 ESTRUTURA DO PROJETO:

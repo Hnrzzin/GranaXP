@@ -1,16 +1,20 @@
 package com.hnrzzin.granaxp.model
 
 import com.google.firebase.Timestamp
-import com.hnrzzin.granaxp.enums.BudgetType
-import java.math.BigDecimal
+import com.google.firebase.firestore.DocumentId
 
-
+enum class BudgetPlanType {
+    FIXO,
+    VARIAVEL
+}
 
 data class BudgetModel(
-    val id: String? = null,
-    val title: String= "",
-    val amount: BigDecimal = BigDecimal.ZERO,
-    val type: BudgetType = BudgetType.VARIÁVEL,
+    @DocumentId
+    var id: String = "",
+    val category: String = "",
+    val limitAmount: Double = 0.0,
+    val spentAmount: Double = 0.0,
+    val type: BudgetPlanType = BudgetPlanType.VARIAVEL,
     val dueDay: Int? = null,
     val isPaid: Boolean? = null,
     val lastPaymentDate: Timestamp? = null

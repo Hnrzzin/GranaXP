@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.hnrzzin.granaxp"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.hnrzzin.granaxp"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 37
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

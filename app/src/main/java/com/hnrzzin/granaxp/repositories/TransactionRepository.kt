@@ -1,112 +1,62 @@
 package com.hnrzzin.granaxp.repositories
-import com.google.firebase.Timestamp
-import java.math.BigDecimal
+
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.TransactionModel
+import com.hnrzzin.granaxp.model.TransactionType
 import kotlinx.coroutines.tasks.await
-import com.hnrzzin.granaxp.enums.TransactionType
-
-
-class TransactionRepository(private val userID: String) {
-    // instancia do bd
+class TransactionRepository(private val userId: String) {
     private val db = FirebaseFirestore.getInstance()
-    private val collection = db.collection("Users").document(userID).collection("Transactions")
-    // metodo responsavel por fazer as inserções no bd
+    private val collection = db.collection("users").document(userId).collection("transactions")
+    suspend fun getTransactions(): List<TransactionModel> {
+        return try {
+            val result = collection.get().await()
+            result.mapNotNull { it.toObject(TransactionModel::class.java) }
+        } catch (e: Exception) {
+            println("Falha ao buscar transações: $e")
+            emptyList()
+        }
+    }
     suspend fun createTransaction(
-        // contrutor pra gente criar uma transação
         title: String,
-        amount: BigDecimal,
+        amount: Double,
         type: TransactionType,
-        category: String
+        category: String,
+        isAutomatic: Boolean = false
     ) {
-        // montando o obj
         val transaction = TransactionModel(
             title = title,
             amount = amount,
             type = type,
-            date = Timestamp.now(),
-            category = category
+            category = category,
+            isAutomatic = isAutomatic
         )
-        // fazendo a criação
         try {
-            collection
-                .add(transaction).await() // cria um id automatico para a transação
-            println("Sucesso ao adicionar a transação")
+            collection.add(transaction).await()
         } catch (e: Exception) {
-            println("Falha ao adicionar a transação: $e")
+            println("Falha ao criar transação: $e")
         }
     }
-
-    // metodo responsavel por fazer as atualizações no bd
-    suspend fun updateTransaction(
-        // construtor para atualizar uma transação
-        updatedTransaction: TransactionModel
-    ) {
-        // Se nome for nulo, lança IllegalArgumentException.
-        // Se passar daqui, o Kotlin sabe que 'id' não é nulo.
-        val transactionId = requireNotNull(updatedTransaction.id) { "ID não pode ser nulo!" }
-
-        // mapeando (key e value) para atualizar somente os campos que o usuario trocar, para nao precisar atualizar o modelo inteiro
+    suspend fun updateTransaction(transaction: TransactionModel) {
+        if (transaction.id.isEmpty()) return
         val updates = mapOf(
-            "title" to updatedTransaction.title,
-            "amount" to updatedTransaction.amount,
-            "category" to updatedTransaction.category
-
+            "title" to transaction.title,
+            "amount" to transaction.amount,
+            "category" to transaction.category,
+            "type" to transaction.type.name,
+            "isAutomatic" to transaction.isAutomatic
         )
-        // atualização no banco
         try {
-           collection
-                .document(transactionId)
-                .update(updates).await()
-            println("Sucesso ao atualizar a transação")
+            collection.document(transaction.id).update(updates).await()
         } catch (e: Exception) {
-            println("Falha ao atualizar a transação: $e")
+            println("Falha ao atualizar transação: $e")
         }
     }
-
-    // metodo responsavel por deleytar no bd
-    suspend fun deleteTransaction(
-        // construtor para pegar o id a ser deletado
-        transaction: TransactionModel
-    ) {
-
-        val transactionId = requireNotNull(transaction.id) { "ID não pode ser nulo!" }
-        // deleção no banco
+    suspend fun deleteTransaction(transaction: TransactionModel) {
+        if (transaction.id.isEmpty()) return
         try {
-            collection
-                .document(transactionId)
-                .delete().await()
-            println("Sucesso ao deletar a transação")
+            collection.document(transaction.id).delete().await()
         } catch (e: Exception) {
-            println("Falha ao deletar a transação: $e")
+            println("Falha ao deletar transação: $e")
         }
-
-    }
-
-    // get do banco
-    suspend fun getTransactions(
-        // construtor do usuario pra pegar o id dele (a fim de mostrar todas as trabszaçpes)
-        ): List<TransactionModel> // retorna uma lista
-        {
-
-        // fazendo a busca
-        try {
-            val getAll = collection
-                .get().await()
-            if (getAll.isEmpty) {
-                println("Nenhum registro encontrado!")
-                return emptyList()
-            }else{
-                val lista = getAll.mapNotNull { documento -> documento.toObject(TransactionModel::class.java) }
-                println("Sucesso ao buscar a transações")
-                return lista
-            }
-
-        } catch (e: Exception) {
-            println("Falha ao buscar a transações $e")
-            return emptyList()
-        }
-
     }
 }
-

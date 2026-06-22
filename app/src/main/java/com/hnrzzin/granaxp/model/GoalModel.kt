@@ -1,14 +1,18 @@
 package com.hnrzzin.granaxp.model
-import com.google.firebase.Timestamp
-import com.hnrzzin.granaxp.enums.GoalDeadline
-import java.math.BigDecimal
+
+import com.google.firebase.firestore.DocumentId
+
+enum class GoalDeadline{
+    CURTO,
+    MEDIO,
+    LONGO
+}
 
 data class GoalModel(
-    // modelo responsavel pelas metas e sonhos
-    val id: String? = null,
-    val deadline: GoalDeadline = GoalDeadline.CURTO,
-    val title: String= "",
-    val targetAmount: BigDecimal = BigDecimal.ZERO,
-    val currentAmount: BigDecimal = BigDecimal.ZERO,
-    val targetDate: Timestamp = Timestamp.now(),
+    @DocumentId
+    var id: String = "",
+    val title: String = "",
+    val targetAmount: Double = 0.0,
+    val currentAmount: Double = 0.0,
+    val deadline: GoalDeadline = GoalDeadline.CURTO
 )

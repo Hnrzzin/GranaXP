@@ -16,16 +16,22 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.hnrzzin.granaxp.enums.TransactionType
-import com.hnrzzin.granaxp.ui.theme.states.TransactionState
+import com.hnrzzin.granaxp.model.TransactionType
 import com.hnrzzin.granaxp.viewmodel.TransactionViewModel
+import com.hnrzzin.granaxp.viewmodel.TransactionUiState
 
 @Composable
 fun AddTransactionScreen(
     viewModel: TransactionViewModel = viewModel(),
     onNavigateBack: () -> Unit = {}
 ) {
-    val actionState by viewModel.transactionState.collectAsState()
+    val actionState by viewModel.uiState.collectAsState()
+
+    // 1. Variáveis locais injetadas para suportar o estado do formulário (substituindo viewModel.x)
+    var transactionType by remember { mutableStateOf(TransactionType.DESPESA) }
+    var amount by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -73,12 +79,12 @@ fun AddTransactionScreen(
             ) {
                 TransactionType.values().forEach { type ->
                     Button(
-                        onClick = { viewModel.transactionType = type },
+                        onClick = { transactionType = type },
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (viewModel.transactionType == type) {
+                            containerColor = if (transactionType == type) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.surfaceVariant
@@ -87,7 +93,7 @@ fun AddTransactionScreen(
                     ) {
                         Text(
                             text = if (type == TransactionType.RECEITA) "Receita" else "Despesa",
-                            color = if (viewModel.transactionType == type) {
+                            color = if (transactionType == type) {
                                 MaterialTheme.colorScheme.onPrimary
                             } else {
                                 MaterialTheme.colorScheme.onSurface
@@ -105,8 +111,8 @@ fun AddTransactionScreen(
                 color = MaterialTheme.colorScheme.onBackground
             )
             OutlinedTextField(
-                value = viewModel.amount,
-                onValueChange = { viewModel.amount = it },
+                value = amount,
+                onValueChange = { amount = it },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("0.00") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
@@ -120,8 +126,8 @@ fun AddTransactionScreen(
                 color = MaterialTheme.colorScheme.onBackground
             )
             OutlinedTextField(
-                value = viewModel.title,
-                onValueChange = { viewModel.title = it },
+                value = title,
+                onValueChange = { title = it },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Ex: Compra no supermercado") }
             )
@@ -134,18 +140,18 @@ fun AddTransactionScreen(
                 color = MaterialTheme.colorScheme.onBackground
             )
             OutlinedTextField(
-                value = viewModel.category,
-                onValueChange = { viewModel.category = it },
+                value = category,
+                onValueChange = { category = it },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Ex: Alimentação") }
             )
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Error Message Handling
-            if (actionState is TransactionState.Error) {
+            // 2. Correção do tratamento de erro: TransactionUiState e acesso direto à .message
+            if (actionState is TransactionUiState.Error) {
                 Text(
-                    text = (actionState as TransactionState.Error).exception.message ?: "Erro desconhecido",
+                    text = (actionState as TransactionUiState.Error).message,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.align(Alignment.CenterHorizontally)
                 )
@@ -153,16 +159,25 @@ fun AddTransactionScreen(
 
             // Submit Button
             Button(
-                onClick = { viewModel.addTransaction() },
+                onClick = {
+                    // 3. Substituição do addTransaction vazio pela API real de createTransaction
+                    viewModel.createTransaction(
+                        title = title,
+                        amount = amount.toDoubleOrNull() ?: 0.0,
+                        type = transactionType,
+                        category = category
+                        // isAutomatic usa o valor default = false
+                    )
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
-                enabled = actionState !is TransactionState.Loading,
+                enabled = actionState !is TransactionUiState.Loading, // Corrigido estado de loading
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary
                 )
             ) {
-                if (actionState is TransactionState.Loading) {
+                if (actionState is TransactionUiState.Loading) { // Corrigido estado de loading
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(24.dp))
                 } else {
                     Text("Adicionar Transação")
@@ -173,8 +188,8 @@ fun AddTransactionScreen(
 
     // Success Navigation
     LaunchedEffect(actionState) {
-        if (actionState is TransactionState.Success) {
-            viewModel.resetState()
+        if (actionState is TransactionUiState.Success) { // Corrigido estado de sucesso
+            // 4. Removida a chamada fantasma para viewModel.resetState()
             onNavigateBack()
         }
     }

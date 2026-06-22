@@ -1,100 +1,93 @@
 package com.hnrzzin.granaxp.viewmodel
 
-
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseAuth
+import com.hnrzzin.granaxp.model.GoalDeadline
 import com.hnrzzin.granaxp.model.GoalModel
-import com.hnrzzin.granaxp.enums.GoalDeadline
 import com.hnrzzin.granaxp.repositories.GoalRepository
-import com.hnrzzin.granaxp.ui.theme.states.GoalState
-import com.hnrzzin.granaxp.ui.theme.states.GoalListState
-import com.hnrzzin.granaxp.utils.DateUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.math.BigDecimal
 
-class GoalViewModel : ViewModel() {
+sealed class GoalUiState {
+    object Loading : GoalUiState()
+    data class Success(val goals: List<GoalModel>) : GoalUiState()
+    data class Error(val message: String) : GoalUiState()
+}
 
-    private val auth: FirebaseAuth = FirebaseAuth.getInstance()
-    private val userId = auth.currentUser?.uid ?: ""
+class GoalViewModel(private val userId: String) : ViewModel() {
     private val repository = GoalRepository(userId)
+    private val _uiState = MutableStateFlow<GoalUiState>(GoalUiState.Loading)
+    val uiState: StateFlow<GoalUiState> = _uiState.asStateFlow()
 
-    private val _goalState = MutableStateFlow<GoalState>(GoalState.Idle)
-    val goalState: StateFlow<GoalState> = _goalState
+    init {
+        fetchGoals()
+    }
 
-    private val _goalListState = MutableStateFlow<GoalListState>(GoalListState.Idle)
-    val goalListState: StateFlow<GoalListState> = _goalListState
-
-    var title by mutableStateOf("")
-    var targetAmount by mutableStateOf("")
-    var currentAmount by mutableStateOf("") // Adicionado (Já Guardado)
-    var deadlineDate by mutableStateOf("") // Adicionado (Data Limite)
-    var deadlineType by mutableStateOf(GoalDeadline.CURTO) // Seu Enum original
-
-    fun addGoal() {
-        // 1. Validação dos campos obrigatórios
-        if (title.isBlank() || targetAmount.toBigDecimalOrNull() == null) {
-            _goalState.value = GoalState.Error(Exception("Preencha os campos obrigatórios"))
-            return
-        }
-
-        // 2. Conversão da Data (String -> Timestamp)
-        val timestamp = DateUtils.parseDateToTimestamp(deadlineDate)
-
-        if (timestamp == null) {
-            _goalState.value = GoalState.Error(Exception("Data inválida. Use o formato dd/mm/aaaa"))
-            return
-        }
-
-        _goalState.value = GoalState.Loading
-
+    fun fetchGoals() {
         viewModelScope.launch {
+            _uiState.value = GoalUiState.Loading
             try {
-                repository.createGoal(
-                    title = title,
-                    targetAmount = targetAmount.toBigDecimal(),
-                    currentAmount = currentAmount.toBigDecimal(),
-                    targetDate = timestamp, // Enviando a String da data
-                    deadline = deadlineType
-                )
-                _goalState.value = GoalState.Success("Meta salva com sucesso!")
-                clearFields()
+                val goals = repository.getGoals()
+                _uiState.value = GoalUiState.Success(goals)
             } catch (e: Exception) {
-                _goalState.value = GoalState.Error(e)
+                _uiState.value = GoalUiState.Error("Falha ao buscar metas: ${e.message}")
             }
         }
     }
 
-    fun getGoals() {
-        _goalListState.value = GoalListState.Loading
+    fun createGoal(
+        title: String,
+        targetAmount: Double,
+        currentAmount: Double,
+        deadline: GoalDeadline,
+        alreadyDeclared: Boolean
+    ) {
         viewModelScope.launch {
             try {
-                val goals = repository.getGoal()
-                _goalListState.value = GoalListState.Success(goals)
+                // Regra: só registra o valor inicial se já foi declarado como receita
+                val validatedCurrentAmount = if (alreadyDeclared) currentAmount else 0.0
+                repository.createGoal(title, targetAmount, validatedCurrentAmount, deadline)
+                fetchGoals()
             } catch (e: Exception) {
-                _goalListState.value = GoalListState.Error(e)
+                _uiState.value = GoalUiState.Error("Falha ao criar meta: ${e.message}")
             }
         }
     }
 
-    private fun validateGoal(): Boolean {
-        if (title.isBlank() || targetAmount.toBigDecimalOrNull() == null) {
-            _goalState.value = GoalState.Error(Exception("Preencha todos os campos corretamente"))
-            return false
+    fun updateGoalProgress(goal: GoalModel, amountToAdd: Double, alreadyDeclared: Boolean) {
+        viewModelScope.launch {
+            try {
+                // Regra: só adiciona à meta se o valor já faz parte do saldo (declarado)
+                if (alreadyDeclared) {
+                    val newCurrentAmount = goal.currentAmount + amountToAdd
+                    val updatedGoal = goal.copy(currentAmount = newCurrentAmount)
+                    repository.updateGoal(updatedGoal)
+                    fetchGoals()
+                } else {
+                    // Se não foi declarado, a interface deve orientar o usuário a cadastrar a receita primeiro
+                    _uiState.value = GoalUiState.Error("Declare este valor como receita antes de adicionar à meta.")
+                }
+            } catch (e: Exception) {
+                _uiState.value = GoalUiState.Error("Falha ao atualizar meta: ${e.message}")
+            }
         }
-        return true
     }
 
-    private fun clearFields() {
-        title = ""
-        targetAmount = ""
-        deadlineType = GoalDeadline.CURTO
+    fun deleteGoal(goal: GoalModel) {
+        viewModelScope.launch {
+            try {
+                repository.deleteGoal(goal)
+                fetchGoals()
+            } catch (e: Exception) {
+                _uiState.value = GoalUiState.Error("Falha ao deletar meta: ${e.message}")
+            }
+        }
     }
 
-    fun resetState() { _goalState.value = GoalState.Idle }
+    fun calculateProgress(goal: GoalModel): Float {
+        if (goal.targetAmount == 0.0) return 0f
+        return (goal.currentAmount / goal.targetAmount).toFloat().coerceIn(0f, 1f)
+    }
 }

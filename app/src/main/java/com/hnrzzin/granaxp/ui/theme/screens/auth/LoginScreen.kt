@@ -32,13 +32,13 @@ fun LoginScreen(
     viewModel: AuthViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    var email          by remember { mutableStateOf("") }
-    var password       by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
 
+    // 1. Substituído Success por Authenticated e removido o resetState()
     LaunchedEffect(uiState) {
-        if (uiState is AuthUiState.Success) {
-            viewModel.resetState()
+        if (uiState is AuthUiState.Authenticated) {
             onLoginSuccess()
         }
     }
@@ -117,7 +117,8 @@ fun LoginScreen(
                 }
 
                 Button(
-                    onClick = { viewModel.loginWithEmail(email, password) },
+                    // 2. Chamada da função corrigida de loginWithEmail para apenas login
+                    onClick = { viewModel.login(email, password) },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = GreenPrimary),

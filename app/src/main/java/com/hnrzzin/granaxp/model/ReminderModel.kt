@@ -1,14 +1,14 @@
 package com.hnrzzin.granaxp.model
-import java.math.BigDecimal
+
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.DocumentId
 
 data class ReminderModel(
-
-    // modelo responsavel pelos lembretes de pagamento
-    val id: String? = null,
-    val title: String= "",
-    val isCompleted: Boolean = false,
-    val dueDate: Timestamp = Timestamp.now(), // data de expiração
-    val amount: BigDecimal = BigDecimal.ZERO // termo padrao para valores monetarios
-
+    @DocumentId
+    var id: String = "",
+    val title: String = "",
+    val description: String = "",
+    val date: Timestamp = Timestamp.now(),
+    val time: String = "",
+    val isCompleted: Boolean = false
 )
