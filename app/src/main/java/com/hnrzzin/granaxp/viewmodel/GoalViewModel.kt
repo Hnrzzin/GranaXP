@@ -2,6 +2,7 @@ package com.hnrzzin.granaxp.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.Timestamp
 import com.hnrzzin.granaxp.model.GoalDeadline
 import com.hnrzzin.granaxp.model.GoalModel
 import com.hnrzzin.granaxp.repositories.GoalRepository
@@ -16,10 +17,23 @@ sealed class GoalUiState {
     data class Error(val message: String) : GoalUiState()
 }
 
+// ✅ Novo: estado isolado para ações de criar/atualizar/deletar,
+// desacoplado do carregamento da lista (mesmo padrão de TransactionSaveState).
+sealed class GoalActionState {
+    object Idle : GoalActionState()
+    object Loading : GoalActionState()
+    object Success : GoalActionState()
+    data class Error(val message: String) : GoalActionState()
+}
+
 class GoalViewModel(private val userId: String) : ViewModel() {
     private val repository = GoalRepository(userId)
+
     private val _uiState = MutableStateFlow<GoalUiState>(GoalUiState.Loading)
     val uiState: StateFlow<GoalUiState> = _uiState.asStateFlow()
+
+    private val _actionState = MutableStateFlow<GoalActionState>(GoalActionState.Idle)
+    val actionState: StateFlow<GoalActionState> = _actionState.asStateFlow()
 
     init {
         fetchGoals()
@@ -42,35 +56,37 @@ class GoalViewModel(private val userId: String) : ViewModel() {
         targetAmount: Double,
         currentAmount: Double,
         deadline: GoalDeadline,
-        alreadyDeclared: Boolean
+        alreadyDeclared: Boolean,
+        deadlineDate: Timestamp? = null
     ) {
         viewModelScope.launch {
+            _actionState.value = GoalActionState.Loading
             try {
-                // Regra: só registra o valor inicial se já foi declarado como receita
                 val validatedCurrentAmount = if (alreadyDeclared) currentAmount else 0.0
-                repository.createGoal(title, targetAmount, validatedCurrentAmount, deadline)
+                repository.createGoal(title, targetAmount, validatedCurrentAmount, deadline, deadlineDate)
                 fetchGoals()
+                _actionState.value = GoalActionState.Success
             } catch (e: Exception) {
-                _uiState.value = GoalUiState.Error("Falha ao criar meta: ${e.message}")
+                _actionState.value = GoalActionState.Error("Falha ao criar meta: ${e.message}")
             }
         }
     }
 
     fun updateGoalProgress(goal: GoalModel, amountToAdd: Double, alreadyDeclared: Boolean) {
         viewModelScope.launch {
+            _actionState.value = GoalActionState.Loading
             try {
-                // Regra: só adiciona à meta se o valor já faz parte do saldo (declarado)
                 if (alreadyDeclared) {
                     val newCurrentAmount = goal.currentAmount + amountToAdd
                     val updatedGoal = goal.copy(currentAmount = newCurrentAmount)
                     repository.updateGoal(updatedGoal)
                     fetchGoals()
+                    _actionState.value = GoalActionState.Success
                 } else {
-                    // Se não foi declarado, a interface deve orientar o usuário a cadastrar a receita primeiro
-                    _uiState.value = GoalUiState.Error("Declare este valor como receita antes de adicionar à meta.")
+                    _actionState.value = GoalActionState.Error("Declare este valor como receita antes de adicionar à meta.")
                 }
             } catch (e: Exception) {
-                _uiState.value = GoalUiState.Error("Falha ao atualizar meta: ${e.message}")
+                _actionState.value = GoalActionState.Error("Falha ao atualizar meta: ${e.message}")
             }
         }
     }
@@ -89,5 +105,9 @@ class GoalViewModel(private val userId: String) : ViewModel() {
     fun calculateProgress(goal: GoalModel): Float {
         if (goal.targetAmount == 0.0) return 0f
         return (goal.currentAmount / goal.targetAmount).toFloat().coerceIn(0f, 1f)
+    }
+
+    fun resetActionState() {
+        _actionState.value = GoalActionState.Idle
     }
 }

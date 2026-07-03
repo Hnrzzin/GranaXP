@@ -20,4 +20,13 @@ object DateUtils {
             null
         }
     }
+
+    private fun parseDateToTimestampOrNull(dateText: String): Timestamp? {
+        return try {
+            val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale("pt", "BR"))
+            Timestamp(sdf.parse(dateText)!!)
+        } catch (e: Exception) {
+            null
+        }
+    }
 }

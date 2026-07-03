@@ -10,16 +10,31 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+// Estado original: Responsável EXCLUSIVAMENTE pela Lista de Transações
 sealed class TransactionUiState {
     object Loading : TransactionUiState()
     data class Success(val transactions: List<TransactionModel>) : TransactionUiState()
     data class Error(val message: String) : TransactionUiState()
 }
 
+// NOVO ESTADO: Responsável EXCLUSIVAMENTE pelo fluxo de Salvar Transação
+sealed class TransactionSaveState {
+    object Idle : TransactionSaveState()
+    object Saving : TransactionSaveState()
+    object Success : TransactionSaveState()
+    data class Error(val message: String) : TransactionSaveState()
+}
+
 class TransactionViewModel(private val userId: String) : ViewModel() {
     private val repository = TransactionRepository(userId)
+
+    // Fluxo da lista
     private val _uiState = MutableStateFlow<TransactionUiState>(TransactionUiState.Loading)
     val uiState: StateFlow<TransactionUiState> = _uiState.asStateFlow()
+
+    // NOVO FLUXO: Controle da Ação de Salvar
+    private val _saveState = MutableStateFlow<TransactionSaveState>(TransactionSaveState.Idle)
+    val saveState: StateFlow<TransactionSaveState> = _saveState.asStateFlow()
 
     init {
         fetchTransactions()
@@ -45,11 +60,13 @@ class TransactionViewModel(private val userId: String) : ViewModel() {
         isAutomatic: Boolean = false
     ) {
         viewModelScope.launch {
+            _saveState.value = TransactionSaveState.Saving // 1. Trava o botão
             try {
                 repository.createTransaction(title, amount, type, category, isAutomatic)
-                fetchTransactions()
+                fetchTransactions() // Atualiza a lista em background silenciosamente
+                _saveState.value = TransactionSaveState.Success // 2. Dispara a navegação
             } catch (e: Exception) {
-                _uiState.value = TransactionUiState.Error("Falha ao criar transação: ${e.message}")
+                _saveState.value = TransactionSaveState.Error("Falha ao criar transação: ${e.message}")
             }
         }
     }

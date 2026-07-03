@@ -12,7 +12,7 @@ class LessonRepository(private val userId: String) {
 
     suspend fun getLessons(): List<LessonModel> {
         return try {
-            val result = lessonsCollection.get().await()
+            val result = lessonsCollection.orderBy("order").get().await()
             result.mapNotNull { it.toObject(LessonModel::class.java) }
         } catch (e: Exception) {
             println("Falha ao buscar lições: $e")
@@ -20,13 +20,14 @@ class LessonRepository(private val userId: String) {
         }
     }
 
-    suspend fun getLessonProgress(): List<LessonProgressModel> {
+    suspend fun getLessonProgress(progressId: String): LessonProgressModel? {
         return try {
-            val result = progressCollection.get().await()
-            result.mapNotNull { it.toObject(LessonProgressModel::class.java) }
+            val result = progressCollection.document(progressId).get().await()
+            // Converte diretamente o documento para o objeto
+            result.toObject(LessonProgressModel::class.java)
         } catch (e: Exception) {
             println("Falha ao buscar progresso: $e")
-            emptyList()
+            null
         }
     }
 
@@ -49,6 +50,26 @@ class LessonRepository(private val userId: String) {
             progressCollection.add(progress).await()
         } catch (e: Exception) {
             println("Falha ao criar progresso: $e")
+        }
+    }
+
+    suspend fun deleteLessonProgress(progressId: String): Boolean {
+        return try {
+            progressCollection.document(progressId).delete().await()
+            true
+        } catch (e: Exception) {
+            println("Error deleting lesson progress: ${e.message}")
+            false
+        }
+    }
+    // Retorna TODO o progresso de lições do usuário (para a trilha completa)
+    suspend fun getAllLessonProgress(): List<LessonProgressModel> {
+        return try {
+            val result = progressCollection.get().await()
+            result.mapNotNull { it.toObject(LessonProgressModel::class.java) }
+        } catch (e: Exception) {
+            println("Falha ao buscar progresso de lições: $e")
+            emptyList()
         }
     }
 }

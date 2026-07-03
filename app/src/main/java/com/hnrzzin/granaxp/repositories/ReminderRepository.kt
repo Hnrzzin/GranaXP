@@ -22,12 +22,14 @@ class ReminderRepository(private val userId: String) {
     suspend fun createReminder(
         title: String,
         description: String,
+        amount: Double,
         date: Timestamp,
         time: String
     ) {
         val reminder = ReminderModel(
             title = title,
             description = description,
+            amount = amount,
             date = date,
             time = time
         )
@@ -43,6 +45,7 @@ class ReminderRepository(private val userId: String) {
         val updates = mapOf(
             "title" to reminder.title,
             "description" to reminder.description,
+            "amount" to reminder.amount,      // ✅ novo
             "date" to reminder.date,
             "time" to reminder.time,
             "isCompleted" to reminder.isCompleted

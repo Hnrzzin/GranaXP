@@ -65,3 +65,47 @@ com.hnrzzin.granaxp/
     │   (Futuramente outros VM)
     │   AuthViewModel.kt
     └── TransactionViewModel.kt
+
+
+
+├── MVVM
+│     ✔
+│
+├── Firebase Auth
+│     ⚠
+│
+├── Firestore
+│     ✔
+│
+├── Navigation
+│     ❌
+│
+├── ViewModel Factory
+│     ✔
+│
+├── Repository Layer
+│     ✔
+│
+├── Screens
+│     70%
+│
+├── Components
+│     ✔
+│
+├── Models
+│     ✔
+│
+├── Home
+│     ⚠
+│
+├── Achievement
+│     ⚠
+│
+├── Lesson
+│     ❌
+│
+├── Dashboard
+│     ❌
+│
+└── Fluxo de Login
+      ❌

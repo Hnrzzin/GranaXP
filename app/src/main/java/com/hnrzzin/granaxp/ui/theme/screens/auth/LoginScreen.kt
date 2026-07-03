@@ -1,5 +1,6 @@
 package com.hnrzzin.granaxp.ui.theme.screens.auth
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +32,11 @@ fun LoginScreen(
     onNavigateToRegister: () -> Unit,
     viewModel: AuthViewModel = viewModel()
 ) {
+    Log.d(
+        "TraceLogin",
+        "LoginScreen usando VM ${viewModel.hashCode()}"
+    )
+
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -48,7 +54,7 @@ fun LoginScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(Modifier.height(80.dp))
-        Text("FinEdu", color = Color.White, fontSize = 36.sp, fontWeight = FontWeight.Bold)
+        Text("GranaXP", color = Color.White, fontSize = 36.sp, fontWeight = FontWeight.Bold)
         Text("Gestão & Aprendizado", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
         Spacer(Modifier.height(48.dp))
 

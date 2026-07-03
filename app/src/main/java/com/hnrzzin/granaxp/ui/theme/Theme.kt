@@ -82,7 +82,7 @@ val LocalGranaXPColors = staticCompositionLocalOf {
 }
 
 @Composable
-fun GranaXPTheme(
+fun GranaXPThemeColors(
     darkTheme: Boolean = false,
     content: @Composable () -> Unit
 ) {

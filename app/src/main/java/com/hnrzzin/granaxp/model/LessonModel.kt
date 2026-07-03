@@ -7,7 +7,9 @@ data class LessonModel(
     var id: String = "",
     var title: String = "",
     var description: String = "",
-    var videoUrl: String = "",
-    var duration: Int = 0,
-    var category: String = ""
+    var videoUrl: String? = null,
+    var duration: Int? = null,
+    var category: String = "",
+    var xpReward: Int = 50,
+    var order: Int = 0
 )

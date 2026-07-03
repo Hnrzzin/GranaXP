@@ -1,5 +1,6 @@
 package com.hnrzzin.granaxp.repositories
 
+import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.UserModel
@@ -11,40 +12,55 @@ class AuthRepository {
     private val firestore = FirebaseFirestore.getInstance()
     private val usersCollection = firestore.collection("users")
 
-    // Retorna o ID do usuário logado, ou null se a sessão expirou/não existir
     suspend fun getCurrentUserId(): String? {
         return auth.currentUser?.uid
     }
 
-    // Busca o perfil completo do usuário no banco de dados
     suspend fun getUserProfile(userId: String): UserModel? {
         val snapshot = usersCollection.document(userId).get().await()
         return snapshot.toObject(UserModel::class.java)
     }
 
-    // Faz o login e retorna o ID do usuário autenticado
     suspend fun loginWithEmail(email: String, pass: String): String {
-        val result = auth.signInWithEmailAndPassword(email, pass).await()
-        return result.user?.uid ?: throw Exception("Usuário não encontrado após login.")
+
+        Log.d("TraceLogin", "Antes do signIn")
+
+        val result =
+            auth.signInWithEmailAndPassword(email, pass).await()
+
+        Log.d("TraceLogin", "Depois do signIn")
+
+        return result.user!!.uid
     }
 
-    // Cria a conta no Firebase Auth e retorna o ID gerado
     suspend fun registerWithEmail(email: String, pass: String): String {
+        Log.d("TraceRegister", "AuthRepository: Solicitando createUserWithEmailAndPassword...")
         val result = auth.createUserWithEmailAndPassword(email, pass).await()
-        return result.user?.uid ?: throw Exception("Falha ao criar conta no Auth.")
+        val uid = result.user?.uid ?: throw Exception("Falha ao criar conta no Auth.")
+        Log.d("TraceRegister", "AuthRepository: UID criado: $uid | Projeto Firebase Auth: ${auth.app.options.projectId}")
+        return uid
     }
 
-    // Salva o modelo de usuário recém-criado no Firestore
     suspend fun createUserProfile(user: UserModel) {
-        usersCollection.document(user.id).set(user).await()
+        val docRef = usersCollection.document(user.id)
+        Log.d("TraceRegister", "AuthRepository: Iniciando gravação.")
+        Log.d("TraceRegister", "AuthRepository: Projeto Firestore: ${firestore.app.options.projectId}")
+        Log.d("TraceRegister", "AuthRepository: Caminho de gravação (set): ${docRef.path}")
+        Log.d("TraceRegister", "AuthRepository: Dados exatos sendo enviados: $user")
+
+        try {
+            docRef.set(user).await()
+            Log.d("TraceRegister", "AuthRepository: GRAVAÇÃO CONFIRMADA! await() liberado para o caminho ${docRef.path}.")
+        } catch (e: Exception) {
+            Log.e("TraceRegister", "AuthRepository: FALHA na gravação para o caminho ${docRef.path}.", e)
+            throw e
+        }
     }
 
-    // Encerra a sessão
     fun logout() {
         auth.signOut()
     }
 
-    // Deleta os dados do Firestore e, em seguida, a conta do Auth
     suspend fun deleteAccount() {
         auth.currentUser?.let { user ->
             usersCollection.document(user.uid).delete().await()

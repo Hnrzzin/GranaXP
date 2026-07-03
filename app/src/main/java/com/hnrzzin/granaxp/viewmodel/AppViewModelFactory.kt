@@ -39,6 +39,9 @@ class AppViewModelFactory(private val userId: String? = null) : ViewModelProvide
             modelClass.isAssignableFrom(HomeViewModel::class.java) -> {
                 HomeViewModel(userId) as T
             }
+            modelClass.isAssignableFrom(UserViewModel::class.java) -> {
+                UserViewModel(userId) as T
+            }
 
             else -> throw IllegalArgumentException("ViewModel não reconhecida: ${modelClass.name}")
         }

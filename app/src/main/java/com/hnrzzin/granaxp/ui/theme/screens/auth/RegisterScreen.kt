@@ -1,5 +1,6 @@
 package com.hnrzzin.granaxp.ui.theme.screens.auth
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,9 +38,9 @@ fun RegisterScreen(
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
 
-    // 1. Substituído AuthUiState.Success por Authenticated e removido o resetState()
     LaunchedEffect(uiState) {
         if (uiState is AuthUiState.Authenticated) {
+            Log.d("TraceRegister", "RegisterScreen: Estado mudou para Authenticated. Disparando navegação para Home.")
             onRegisterSuccess()
         }
     }
@@ -49,7 +50,7 @@ fun RegisterScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(Modifier.height(80.dp))
-        Text("FinEdu", color = Color.White, fontSize = 36.sp, fontWeight = FontWeight.Bold)
+        Text("GranaXP", color = Color.White, fontSize = 36.sp, fontWeight = FontWeight.Bold)
         Text("Gestão & Aprendizado", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
         Spacer(Modifier.height(48.dp))
 
@@ -119,8 +120,10 @@ fun RegisterScreen(
                 }
 
                 Button(
-                    // 2. Chamada da função de registro corrigida para a nova assinatura e ordem de parâmetros
-                    onClick = { viewModel.register(name = name, email = email, pass = password) },
+                    onClick = {
+                        Log.d("TraceRegister", "RegisterScreen: Botão clicado. Enviando dados: email=$email")
+                        viewModel.register(name = name, email = email, pass = password)
+                    },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = GreenPrimary),

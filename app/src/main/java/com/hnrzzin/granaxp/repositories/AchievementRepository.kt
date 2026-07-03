@@ -78,4 +78,13 @@ class AchievementRepository {
             false
         }
     }
+    suspend fun deleteAchievementProgress(progressId: String): Boolean {
+        return try {
+            db.collection("achievementProgress").document(progressId).delete().await()
+            true
+        } catch (e: Exception) {
+            println("Error deleting achievement progress: ${e.message}")
+            false
+        }
+    }
 }

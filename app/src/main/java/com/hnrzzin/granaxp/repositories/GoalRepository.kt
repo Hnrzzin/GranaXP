@@ -1,5 +1,6 @@
 package com.hnrzzin.granaxp.repositories
 
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.GoalDeadline
 import com.hnrzzin.granaxp.model.GoalModel
@@ -23,13 +24,15 @@ class GoalRepository(private val userId: String) {
         title: String,
         targetAmount: Double,
         currentAmount: Double,
-        deadline: GoalDeadline
+        deadline: GoalDeadline,
+        deadlineDate: Timestamp?
     ) {
         val goal = GoalModel(
             title = title,
             targetAmount = targetAmount,
             currentAmount = currentAmount,
-            deadline = deadline
+            deadline = deadline,
+            deadlineDate = deadlineDate
         )
         try {
             collection.add(goal).await()
@@ -44,7 +47,8 @@ class GoalRepository(private val userId: String) {
             "title" to goal.title,
             "targetAmount" to goal.targetAmount,
             "currentAmount" to goal.currentAmount,
-            "deadline" to goal.deadline.name
+            "deadline" to goal.deadline.name,
+            "deadlineDate" to goal.deadlineDate   // ✅ adicionado
         )
         try {
             collection.document(goal.id).update(updates).await()

@@ -43,12 +43,13 @@ class ReminderViewModel(private val userId: String) : ViewModel() {
     fun createReminder(
         title: String,
         description: String,
+        amount: Double,
         date: Timestamp,
         time: String
     ) {
         viewModelScope.launch {
             try {
-                repository.createReminder(title, description, date, time)
+                repository.createReminder(title, description,amount, date, time)
                 fetchReminders()
             } catch (e: Exception) {
                 _uiState.value = ReminderUiState.Error("Falha ao criar lembrete: ${e.message}")

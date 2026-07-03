@@ -1,5 +1,6 @@
 package com.hnrzzin.granaxp.repositories
 
+import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.UserModel
 import kotlinx.coroutines.tasks.await
@@ -9,18 +10,34 @@ class UserRepository(private val userId: String) {
     private val collection = db.collection("users")
 
     suspend fun createUser(user: UserModel) {
-        // Removemo o try/catch daqui de dentro para que a ViewModel
-        // capture a falha e consiga exibir uma mensagem de erro na tela
         collection.document(userId).set(user).await()
     }
 
     suspend fun getUser(): UserModel? {
-        val result = collection.document(userId).get().await()
-        return result.toObject(UserModel::class.java)
+        val docRef = collection.document(userId)
+        Log.d("TraceHome", "UserRepository: Iniciando leitura (get) para recuperar usuário.")
+        Log.d("TraceHome", "UserRepository: UID: $userId | Projeto: ${db.app.options.projectId}")
+        Log.d("TraceHome", "UserRepository: Caminho de leitura: ${docRef.path}")
+
+        try {
+            val snapshot = docRef.get().await()
+            Log.d("TraceHome", "UserRepository: Resposta do Firebase recebida. Existe? ${snapshot.exists()}")
+
+            if (snapshot.exists()) {
+                Log.d("TraceHome", "UserRepository: Snapshot Data puro: ${snapshot.data}")
+            } else {
+                Log.w("TraceHome", "UserRepository: ALERTA - Documento NÃO EXISTE no banco!")
+            }
+
+            val result = snapshot.toObject(UserModel::class.java)
+            Log.d("TraceHome", "UserRepository: Resultado após mapeamento (toObject): $result")
+            return result
+        } catch (e: Exception) {
+            Log.e("TraceHome", "UserRepository: Erro durante a leitura no caminho ${docRef.path}", e)
+            throw e
+        }
     }
 
-    // NOVA FUNÇÃO: Atualiza o modelo inteiro do usuário de uma vez.
-    // Muito útil para a lógica de Level Up que altera XP, Nível e meta de XP junta.
     suspend fun updateUser(user: UserModel) {
         collection.document(userId).set(user).await()
     }
