@@ -110,4 +110,30 @@ class GoalViewModel(private val userId: String) : ViewModel() {
     fun resetActionState() {
         _actionState.value = GoalActionState.Idle
     }
+
+    fun updateGoalDetails(
+        goal: GoalModel,
+        newTitle: String,
+        newTargetAmount: Double,
+        newDeadline: GoalDeadline,
+        newDeadlineDate: Timestamp?
+    ) {
+        viewModelScope.launch {
+            _actionState.value = GoalActionState.Loading
+            try {
+                val updatedGoal = goal.copy(
+                    title = newTitle,
+                    targetAmount = newTargetAmount,
+                    deadline = newDeadline,
+                    deadlineDate = newDeadlineDate
+                    // currentAmount NÃO entra aqui — preservado do goal original via copy()
+                )
+                repository.updateGoal(updatedGoal)
+                fetchGoals()
+                _actionState.value = GoalActionState.Success
+            } catch (e: Exception) {
+                _actionState.value = GoalActionState.Error("Falha ao atualizar meta: ${e.message}")
+            }
+        }
+    }
 }

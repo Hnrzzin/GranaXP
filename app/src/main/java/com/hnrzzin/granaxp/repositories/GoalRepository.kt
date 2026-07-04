@@ -48,7 +48,7 @@ class GoalRepository(private val userId: String) {
             "targetAmount" to goal.targetAmount,
             "currentAmount" to goal.currentAmount,
             "deadline" to goal.deadline.name,
-            "deadlineDate" to goal.deadlineDate   // ✅ adicionado
+            "deadlineDate" to goal.deadlineDate
         )
         try {
             collection.document(goal.id).update(updates).await()

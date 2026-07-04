@@ -1,6 +1,7 @@
 package com.hnrzzin.granaxp.ui.theme.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,6 +12,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -72,6 +75,8 @@ fun GoalScreen(
 fun GoalContent(viewModel: GoalViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var goalToUpdate by remember { mutableStateOf<GoalModel?>(null) }
+    var goalToEdit by remember { mutableStateOf<GoalModel?>(null) }
+    var goalToDelete by remember { mutableStateOf<GoalModel?>(null) }
 
     when (val state = uiState) {
         is GoalUiState.Loading -> {
@@ -99,7 +104,9 @@ fun GoalContent(viewModel: GoalViewModel) {
                         GoalCard(
                             goal = goal,
                             progress = viewModel.calculateProgress(goal),
-                            onAddValueClick = { goalToUpdate = goal }
+                            onAddValueClick = { goalToUpdate = goal },
+                            onEditClick = { goalToEdit = goal },
+                            onDeleteClick = { goalToDelete = goal }
                         )
                     }
                 }
@@ -107,7 +114,7 @@ fun GoalContent(viewModel: GoalViewModel) {
         }
     }
 
-    // Gerencia a abertura do diálogo de incremento de valor
+    // Modal de adicionar valor (já existia)
     goalToUpdate?.let { goal ->
         AddValueToGoalSheet(
             goal = goal,
@@ -118,148 +125,206 @@ fun GoalContent(viewModel: GoalViewModel) {
             onDismiss = { goalToUpdate = null }
         )
     }
-} // 👈 AQUI ESTAVA FALTANDO ESSA CHAVE DE FECHAMENTO
+
+    // Modal de editar título/valor-alvo/prazo (novo)
+    goalToEdit?.let { goal ->
+        EditGoalSheet(
+            goal = goal,
+            viewModel = viewModel,
+            onDismiss = { goalToEdit = null }
+        )
+    }
+
+    // Confirmação de exclusão (novo)
+    goalToDelete?.let { goal ->
+        AlertDialog(
+            onDismissRequest = { goalToDelete = null },
+            title = { Text("Excluir meta?") },
+            text = { Text("Tem certeza que deseja excluir \"${goal.title}\"? Essa ação não pode ser desfeita.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteGoal(goal)
+                    goalToDelete = null
+                }) {
+                    Text("Excluir", color = GranaXPColors.Red600)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { goalToDelete = null }) { Text("Cancelar") }
+            }
+        )
+    }
+}
 
 // ==========================================
 // 3. TELA DE ADICIONAR NOVA META (FORMULÁRIO)
 // ==========================================
 @Composable
-fun AddGoalDialog(
+fun AddGoalSheet(
     viewModel: GoalViewModel,
     onDismiss: () -> Unit
 ) {
     val actionState by viewModel.actionState.collectAsStateWithLifecycle()
-    var alreadyDeclared by remember { mutableStateOf(false) }
+    val isSaving = actionState is GoalActionState.Loading
 
     var deadlineType by remember { mutableStateOf(GoalDeadline.CURTO) }
     var title by remember { mutableStateOf("") }
-    var targetAmount by remember { mutableStateOf("") }
-    var currentAmount by remember { mutableStateOf("") }
-    var deadlineDate by remember { mutableStateOf("") }
+    var targetAmount by remember { mutableStateOf("") }     // dígitos crus
+    var currentAmount by remember { mutableStateOf("") }    // dígitos crus
+    var deadlineDateRaw by remember { mutableStateOf("") }  // dígitos crus
+    var alreadyDeclared by remember { mutableStateOf(false) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Nova Meta Financeira", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Seleção de Prazo
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GoalDeadline.entries.forEach { deadline ->
-                        Button(
-                            onClick = { deadlineType = deadline },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (deadlineType == deadline)
-                                    GranaXPColors.Purple600 else MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        ) {
-                            Text(if (deadline == GoalDeadline.CURTO) "Curto" else "Longo", fontSize = 12.sp)
-                        }
-                    }
-                }
+    com.hnrzzin.granaxp.ui.theme.components.AppModalBottomSheet(onDismiss = onDismiss) {
+        com.hnrzzin.granaxp.ui.theme.components.AppModalHeader(title = "Nova Meta Financeira", onClose = onDismiss)
 
-                // Inputs
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("O que quer alcançar?") },
-                    placeholder = { Text("Ex: Trocar de Carro") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = targetAmount,
-                        onValueChange = { targetAmount = it },
-                        label = { Text("Alvo (R$)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.weight(1f)
+        // Seleção de Prazo — só Curto/Longo, contraste correto sempre
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GoalDeadline.entries.filter { it != GoalDeadline.MEDIO }.forEach { deadline ->
+                val selected = deadlineType == deadline
+                Surface(
+                    modifier = Modifier.weight(1f).clickable { deadlineType = deadline },
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (selected) GranaXPColors.Purple50 else GranaXPColors.Gray100,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp, if (selected) GranaXPColors.Purple500 else GranaXPColors.Gray100
                     )
-                    OutlinedTextField(
-                        value = currentAmount,
-                        onValueChange = { currentAmount = it },
-                        label = { Text("Guardado (R$)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                // Validação de Receita Condicional
-                if (currentAmount.toDoubleOrNull()?.let { it > 0.0 } == true) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    ) {
-                        Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("Já declarado como receita?", fontSize = 12.sp, modifier = Modifier.weight(1f))
-                                Switch(checked = alreadyDeclared, onCheckedChange = { alreadyDeclared = it })
-                            }
-                            if (!alreadyDeclared) {
-                                Text(
-                                    "O valor não somará agora — registre a receita antes.",
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                            }
-                        }
-                    }
-                }
-
-                OutlinedTextField(
-                    value = deadlineDate,
-                    onValueChange = { deadlineDate = it },
-                    label = { Text("Data Limite (dd/mm/aaaa)") },
-                    placeholder = { Text("Ex: 31/12/2026") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                if (actionState is GoalActionState.Error) {
+                ) {
                     Text(
-                        text = (actionState as GoalActionState.Error).message,
-                        color = MaterialTheme.colorScheme.error,
-                        fontSize = 12.sp
+                        if (deadline == GoalDeadline.CURTO) "Curto Prazo" else "Longo Prazo",
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (selected) GranaXPColors.Purple600 else GranaXPColors.Gray600
                     )
                 }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    viewModel.createGoal(
-                        title = title,
-                        targetAmount = targetAmount.toDoubleOrNull() ?: 0.0,
-                        currentAmount = currentAmount.toDoubleOrNull() ?: 0.0,
-                        deadline = deadlineType,
-                        alreadyDeclared = alreadyDeclared,
-                        deadlineDate = com.hnrzzin.granaxp.utils.DateUtils.parseDateToTimestamp(deadlineDate)
-                    )
-                },
-                enabled = actionState !is GoalActionState.Loading,
-                colors = ButtonDefaults.buttonColors(containerColor = GranaXPColors.Purple600)
-            ) {
-                if (actionState is GoalActionState.Loading) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary)
-                } else {
-                    Text("Salvar")
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
         }
-    )
 
-    // Fecha o modal automaticamente quando salvar com sucesso
+        Spacer(Modifier.height(20.dp))
+
+        OutlinedTextField(
+            value = title,
+            onValueChange = { title = it },
+            label = { Text("O que quer alcançar?") },
+            placeholder = { Text("Ex: Trocar de Carro") },
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = GranaXPColors.Purple500)
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = targetAmount,
+                onValueChange = { input -> targetAmount = input.filter { it.isDigit() } },
+                label = { Text("Alvo (R$)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                visualTransformation = com.hnrzzin.granaxp.utils.CurrencyVisualTransformation(),
+                modifier = Modifier.weight(1f),
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = GranaXPColors.Purple500)
+            )
+            OutlinedTextField(
+                value = currentAmount,
+                onValueChange = { input -> currentAmount = input.filter { it.isDigit() } },
+                label = { Text("Já Guardado (R$)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                visualTransformation = com.hnrzzin.granaxp.utils.CurrencyVisualTransformation(),
+                modifier = Modifier.weight(1f),
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = GranaXPColors.Purple500)
+            )
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = deadlineDateRaw,
+            onValueChange = { input -> deadlineDateRaw = input.filter { it.isDigit() }.take(8) },
+            label = { Text("Data Limite") },
+            placeholder = { Text("dd/mm/aaaa") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            visualTransformation = com.hnrzzin.granaxp.utils.DateVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = GranaXPColors.Purple500)
+        )
+
+        // Regra de negócio crítica #1 — só entra em jogo se currentAmount > 0
+        val hasInitialAmount = currentAmount.toLongOrNull()?.let { it > 0 } == true
+        if (hasInitialAmount) {
+            Spacer(Modifier.height(16.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "O valor já guardado foi declarado como receita?",
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f),
+                    color = GranaXPColors.Gray700
+                )
+                Switch(
+                    checked = alreadyDeclared,
+                    onCheckedChange = { alreadyDeclared = it },
+                    colors = SwitchDefaults.colors(checkedTrackColor = GranaXPColors.Primary)
+                )
+            }
+            if (!alreadyDeclared) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Registre esse valor como receita em Transações, ou deixe o campo em branco e adicione depois.",
+                    fontSize = 11.sp,
+                    color = GranaXPColors.Error
+                )
+            }
+        }
+
+        if (actionState is GoalActionState.Error) {
+            Spacer(Modifier.height(8.dp))
+            Text((actionState as GoalActionState.Error).message, color = GranaXPColors.Error, fontSize = 12.sp)
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        val canSave = title.isNotBlank() &&
+                targetAmount.isNotBlank() &&
+                (!hasInitialAmount || alreadyDeclared) &&
+                !isSaving
+
+        Button(
+            onClick = {
+                val parsedDate = if (deadlineDateRaw.length == 8) {
+                    try {
+                        val d = deadlineDateRaw.substring(0, 2)
+                        val m = deadlineDateRaw.substring(2, 4)
+                        val y = deadlineDateRaw.substring(4, 8)
+                        val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale("pt", "BR"))
+                        com.google.firebase.Timestamp(sdf.parse("$d/$m/$y")!!)
+                    } catch (e: Exception) { null }
+                } else null
+
+                viewModel.createGoal(
+                    title = title,
+                    targetAmount = com.hnrzzin.granaxp.utils.rawDigitsToAmount(targetAmount),
+                    currentAmount = com.hnrzzin.granaxp.utils.rawDigitsToAmount(currentAmount),
+                    deadline = deadlineType,
+                    alreadyDeclared = if (hasInitialAmount) alreadyDeclared else true,
+                    deadlineDate = parsedDate
+                )
+            },
+            enabled = canSave,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = GranaXPColors.Purple600),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            if (isSaving) {
+                CircularProgressIndicator(color = GranaXPColors.White, modifier = Modifier.size(20.dp))
+            } else {
+                Text("Salvar Meta", color = GranaXPColors.White, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+
     LaunchedEffect(actionState) {
         if (actionState is GoalActionState.Success) {
             viewModel.resetActionState()
@@ -275,7 +340,9 @@ fun AddGoalDialog(
 private fun GoalCard(
     goal: GoalModel,
     progress: Float,
-    onAddValueClick: () -> Unit
+    onAddValueClick: () -> Unit,
+    onEditClick: () -> Unit,
+    onDeleteClick: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -305,9 +372,6 @@ private fun GoalCard(
                         )
                     }
                 }
-                IconButton(onClick = onAddValueClick) {
-                    Icon(Icons.Default.Add, contentDescription = "Adicionar valor", tint = GranaXPColors.Secondary)
-                }
             }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -321,6 +385,23 @@ private fun GoalCard(
                 color = GranaXPColors.Secondary,
                 trackColor = GranaXPColors.Gray200
             )
+            Spacer(Modifier.height(12.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onEditClick, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Edit, contentDescription = "Editar", tint = GranaXPColors.Gray500, modifier = Modifier.size(16.dp))
+                }
+                IconButton(onClick = onDeleteClick, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Delete, contentDescription = "Deletar", tint = GranaXPColors.Red600, modifier = Modifier.size(16.dp))
+                }
+                Spacer(Modifier.width(4.dp))
+                IconButton(onClick = onAddValueClick, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Add, contentDescription = "Adicionar valor", tint = GranaXPColors.Secondary, modifier = Modifier.size(18.dp))
+                }
+            }
         }
     }
 }
@@ -395,6 +476,133 @@ fun AddValueToGoalSheet(
     }
 
     // Fecha o bottom sheet automaticamente quando salvar com sucesso no Firebase
+    LaunchedEffect(actionState) {
+        if (actionState is GoalActionState.Success) {
+            viewModel.resetActionState()
+            onDismiss()
+        }
+    }
+}
+@Composable
+fun EditGoalSheet(
+    goal: GoalModel,
+    viewModel: GoalViewModel,
+    onDismiss: () -> Unit
+) {
+    val actionState by viewModel.actionState.collectAsStateWithLifecycle()
+    var title by remember { mutableStateOf(goal.title) }
+    var targetAmount by remember { mutableStateOf((goal.targetAmount * 100).toLong().toString()) }
+    var deadlineType by remember { mutableStateOf(goal.deadline) }
+    var deadlineDateRaw by remember {
+        mutableStateOf(
+            goal.deadlineDate?.toDate()?.let {
+                java.text.SimpleDateFormat("ddMMyyyy", java.util.Locale("pt", "BR")).format(it)
+            } ?: ""
+        )
+    }
+
+    com.hnrzzin.granaxp.ui.theme.components.AppModalBottomSheet(onDismiss = onDismiss) {
+        com.hnrzzin.granaxp.ui.theme.components.AppModalHeader(title = "Editar Meta Financeira", onClose = onDismiss)
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GoalDeadline.entries.filter { it != GoalDeadline.MEDIO }.forEach { deadline ->
+                val selected = deadlineType == deadline
+                Surface(
+                    modifier = Modifier.weight(1f).clickable { deadlineType = deadline },
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (selected) GranaXPColors.Purple50 else GranaXPColors.Gray100,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) GranaXPColors.Purple500 else GranaXPColors.Gray100)
+                ) {
+                    Text(
+                        if (deadline == GoalDeadline.CURTO) "Curto Prazo" else "Longo Prazo",
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        fontSize = 13.sp,
+                        color = if (selected) GranaXPColors.Purple600 else GranaXPColors.Gray600
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = title,
+            onValueChange = { title = it },
+            label = { Text("O que quer alcançar?") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = targetAmount,
+            onValueChange = { input -> targetAmount = input.filter { it.isDigit() } },
+            label = { Text("Valor Alvo (R$)") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            visualTransformation = com.hnrzzin.granaxp.utils.CurrencyVisualTransformation(),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = deadlineDateRaw,
+            onValueChange = { input -> deadlineDateRaw = input.filter { it.isDigit() }.take(8) },
+            label = { Text("Data Limite") },
+            placeholder = { Text("dd/mm/aaaa") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            visualTransformation = com.hnrzzin.granaxp.utils.DateVisualTransformation(),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "O valor já guardado (R$ %.2f) só muda ao declarar receitas na meta.".format(goal.currentAmount),
+            fontSize = 11.sp,
+            color = GranaXPColors.Gray500
+        )
+
+        if (actionState is GoalActionState.Error) {
+            Spacer(Modifier.height(8.dp))
+            Text((actionState as GoalActionState.Error).message, color = GranaXPColors.Error, fontSize = 12.sp)
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        Button(
+            onClick = {
+                val parsedDate = if (deadlineDateRaw.length == 8) {
+                    val d = deadlineDateRaw.substring(0, 2)
+                    val m = deadlineDateRaw.substring(2, 4)
+                    val y = deadlineDateRaw.substring(4, 8)
+                    try {
+                        val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale("pt", "BR"))
+                        com.google.firebase.Timestamp(sdf.parse("$d/$m/$y")!!)
+                    } catch (e: Exception) { goal.deadlineDate }
+                } else goal.deadlineDate
+
+                viewModel.updateGoalDetails(
+                    goal = goal,
+                    newTitle = title,
+                    newTargetAmount = com.hnrzzin.granaxp.utils.rawDigitsToAmount(targetAmount),
+                    newDeadline = deadlineType,
+                    newDeadlineDate = parsedDate
+                )
+            },
+            enabled = title.isNotBlank() && actionState !is GoalActionState.Loading,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = GranaXPColors.Purple600),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            if (actionState is GoalActionState.Loading) {
+                CircularProgressIndicator(color = GranaXPColors.White, modifier = Modifier.size(20.dp))
+            } else {
+                Text("Salvar Alterações", color = GranaXPColors.White, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+
     LaunchedEffect(actionState) {
         if (actionState is GoalActionState.Success) {
             viewModel.resetActionState()

@@ -69,7 +69,8 @@ object GranaXPColors {
     val Yellow400 = Color(0xFFFACC15)
     val Yellow500 = Color(0xFFEAB308)
     val Warning = Yellow500
-
+    val Teal700 = Color(0xFF0F766E)  // fim do gradiente do card Saldo Atual
+    val Indigo700 = Color(0xFF4338CA)  // fim do gradiente do header de Aprender
     // Aliases semânticos usados nas telas já construídas / no Theme.kt
     val Success = Emerald600
     val Surface = White

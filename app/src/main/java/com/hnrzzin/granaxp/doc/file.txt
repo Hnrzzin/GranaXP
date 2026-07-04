@@ -109,3 +109,21 @@ com.hnrzzin.granaxp/
 │
 └── Fluxo de Login
       ❌
+
+      // addsheet transaction
+      private class CurrencyVisualTransformation : VisualTransformation {
+          private val formatter = NumberFormat.getCurrencyInstance(Locale("pt", "BR"))
+
+          override fun filter(text: androidx.compose.ui.text.AnnotatedString): TransformedText {
+              val cents = text.text.toLongOrNull() ?: 0L
+              val formatted = formatter.format(cents / 100.0)
+
+              return TransformedText(
+                  androidx.compose.ui.text.AnnotatedString(formatted),
+                  object : OffsetMapping {
+                      override fun originalToTransformed(offset: Int) = formatted.length
+                      override fun transformedToOriginal(offset: Int) = text.text.length
+                  }
+              )
+          }
+      }

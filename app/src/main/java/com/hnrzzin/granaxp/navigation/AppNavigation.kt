@@ -1,13 +1,20 @@
 package com.hnrzzin.granaxp.navigation
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.hnrzzin.granaxp.ui.theme.GranaXPColors
 import com.hnrzzin.granaxp.ui.theme.screens.HomeScreen
 import com.hnrzzin.granaxp.ui.theme.screens.ProfileScreen
 import com.hnrzzin.granaxp.ui.theme.screens.TransactionsScreen
@@ -32,14 +39,23 @@ sealed class Screen(val route: String) {
 @Composable
 fun AppNavigation() {
     val navController = rememberNavController()
-
-    // AuthViewModel é instanciado UMA VEZ aqui, fora do NavHost.
-    // Todas as telas que precisarem dele recebem ESTA instância.
     val authViewModel: AuthViewModel = viewModel()
     val authUiState by authViewModel.uiState.collectAsStateWithLifecycle()
 
-    // Navegação baseada no estado de autenticação.
-    // LaunchedEffect(authUiState) reage apenas quando o estado muda.
+
+    // Gate: enquanto o estado inicial não for resolvido, não desenha nem Login nem Home.
+    // Isso elimina o flash, pois o primeiro frame nunca chega a compor LoginScreen
+    // para um usuário que já está autenticado.
+    when (authUiState) {
+        is AuthUiState.Idle, is AuthUiState.Loading -> {
+            // Splash mínimo — pode ser um Box vazio com o background do app,
+            // ou um CircularProgressIndicator centralizado, a seu critério visual.
+            SplashLoading()
+            return
+        }
+        else -> Unit
+    }
+
     LaunchedEffect(authUiState) {
         when (authUiState) {
             is AuthUiState.Authenticated -> {
@@ -49,7 +65,6 @@ fun AppNavigation() {
                 }
             }
             is AuthUiState.Unauthenticated -> {
-                // Guard: só navega se não estiver já em Login
                 if (navController.currentDestination?.route != Screen.Login.route) {
                     navController.navigate(Screen.Login.route) {
                         popUpTo(navController.graph.id) { inclusive = true }
@@ -59,16 +74,18 @@ fun AppNavigation() {
             }
             else -> Unit
         }
+
     }
+
 
     NavHost(
         navController = navController,
-        // startDestination aponta para Login.
-        // Se o usuário já estiver autenticado, o LaunchedEffect
-        // acima navega imediatamente para Home sem piscar a tela de login,
-        // pois checkCurrentUser() é chamado no init do AuthViewModel.
-        startDestination = Screen.Login.route
-    ) {
+        startDestination = if (authUiState is AuthUiState.Authenticated) {
+            Screen.Home.route
+        } else {
+            Screen.Login.route
+        }
+    ){
 
         // --- Rotas de Autenticação ---
 
@@ -134,6 +151,7 @@ fun AppNavigation() {
                 budgetViewModel = viewModel(factory = factory),
                 goalViewModel = viewModel(factory = factory),
                 reminderViewModel = viewModel(factory = factory),
+                userViewModel = viewModel(factory = factory),   // ← novo
 
                 // Mapeia as novas ações de navegação da tela
                 onNavigateToHome = {
@@ -182,6 +200,7 @@ fun AppNavigation() {
 
             LearnScreen(
                 viewModel = viewModel(factory = factory),
+                userViewModel = viewModel(factory = factory),
                 onNavigateToHome = {
                     navController.navigate(Screen.Home.route) {
                         popUpTo(Screen.Home.route) { inclusive = true }
@@ -193,7 +212,23 @@ fun AppNavigation() {
                 onNavigateToProfile = {
                     navController.navigate(Screen.Profile.route)
                 }
+
             )
+
         }
+
+    }
+
+
+}
+@Composable
+private fun SplashLoading() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(GranaXPColors.Primary),
+        contentAlignment = Alignment.Center
+    ) {
+        CircularProgressIndicator(color = GranaXPColors.White)
     }
 }

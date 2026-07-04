@@ -24,6 +24,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hnrzzin.granaxp.ui.theme.GranaXPColors
 import com.hnrzzin.granaxp.ui.theme.components.AppBottomNavigationBar
 import com.hnrzzin.granaxp.ui.theme.components.AppTab
+import com.hnrzzin.granaxp.ui.theme.components.HomeTopBar
 import com.hnrzzin.granaxp.viewmodel.*
 
 @Composable
@@ -31,14 +32,26 @@ fun LearnScreen(
     viewModel: LessonViewModel,
     onNavigateToHome: () -> Unit,
     onNavigateToTransactions: () -> Unit,
+    userViewModel: UserViewModel,
     onNavigateToProfile: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val completionEvent by viewModel.completionEvent.collectAsStateWithLifecycle()
-
+    val userUiState by userViewModel.uiState.collectAsStateWithLifecycle()
     var selectedLesson by remember { mutableStateOf<LessonWithProgress?>(null) }
 
     Scaffold(
+        topBar = {
+            val level = (userUiState as? UserUiState.Success)?.user?.level ?: 1
+            val xp = (userUiState as? UserUiState.Success)?.user?.xp ?: 0
+            val nextLevelXp = (userUiState as? UserUiState.Success)?.user?.nextLevelXp ?: 100
+            HomeTopBar(
+                level = level,
+                xp = xp,
+                nextLevelXp = nextLevelXp,
+                onProfileClick = onNavigateToProfile
+            )
+        },
         bottomBar = {
             AppBottomNavigationBar(
                 selectedTab = AppTab.LEARN,

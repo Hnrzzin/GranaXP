@@ -1,4 +1,4 @@
-package com.hnrzzin.granaxp.ui.theme.screens
+package com.hnrzzin.granaxp.ui.theme.components
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -17,22 +17,19 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.input.TransformedText
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hnrzzin.granaxp.model.TransactionType
 import com.hnrzzin.granaxp.ui.theme.GranaXPColors
-import com.hnrzzin.granaxp.ui.theme.components.AppModalBottomSheet
-import com.hnrzzin.granaxp.ui.theme.components.AppModalHeader
+import com.hnrzzin.granaxp.utils.CurrencyVisualTransformation
+import com.hnrzzin.granaxp.utils.rawDigitsToAmount
 import com.hnrzzin.granaxp.viewmodel.TransactionSaveState
 import com.hnrzzin.granaxp.viewmodel.TransactionViewModel
-import java.text.NumberFormat
-import java.util.Locale
 
 @Composable
 fun AddTransactionSheet(
@@ -42,7 +39,7 @@ fun AddTransactionSheet(
     val saveState by viewModel.saveState.collectAsState()
 
     var type by remember { mutableStateOf(TransactionType.DESPESA) }
-    var amountCents by remember { mutableStateOf(0L) } // valor em centavos, evita erro de ponto flutuante
+    var amount by remember { mutableStateOf("") }   // dígitos crus, igual aos outros modais
     var title by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("") }
 
@@ -57,22 +54,24 @@ fun AddTransactionSheet(
     AppModalBottomSheet(onDismiss = onDismiss) {
         AppModalHeader(title = "Nova Transação", onClose = onDismiss)
 
-        // Toggle Despesa/Receita com fundo deslizante animado
-        SegmentedTypeToggle(
+        SimpleTypeToggle(
             selected = type,
             onSelect = { type = it }
         )
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(20.dp))
 
-        // Hero Input — valor gigante, centralizado, sem borda
-        HeroAmountInput(
-            amountCents = amountCents,
-            onAmountChange = { amountCents = it },
-            color = typeColor
+        OutlinedTextField(
+            value = amount,
+            onValueChange = { input -> amount = input.filter { it.isDigit() } },
+            label = { Text("Valor (R$)") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            visualTransformation = CurrencyVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = typeColor)
         )
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(12.dp))
 
         OutlinedTextField(
             value = title,
@@ -109,12 +108,12 @@ fun AddTransactionSheet(
             onClick = {
                 viewModel.createTransaction(
                     title = title,
-                    amount = amountCents / 100.0,
+                    amount = rawDigitsToAmount(amount),
                     type = type,
                     category = category
                 )
             },
-            enabled = saveState !is TransactionSaveState.Saving && amountCents > 0 && title.isNotBlank(),
+            enabled = saveState !is TransactionSaveState.Saving && amount.isNotBlank() && title.isNotBlank(),
             modifier = Modifier.fillMaxWidth().height(52.dp),
             colors = ButtonDefaults.buttonColors(containerColor = typeColor),
             shape = RoundedCornerShape(8.dp)
@@ -127,6 +126,8 @@ fun AddTransactionSheet(
         }
     }
 }
+
+// SegmentedTypeToggle continua igual, sem mudanças
 
 // ---------- Toggle animado ----------
 
@@ -213,11 +214,11 @@ private fun HeroAmountInput(
                 onAmountChange(cents.coerceAtMost(999_999_999L)) // limite de sanidade
             },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            textStyle = androidx.compose.ui.text.TextStyle(
+            textStyle = TextStyle(
                 fontSize = 40.sp,
                 fontWeight = FontWeight.Bold,
                 color = color,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                textAlign = TextAlign.Center
             ),
             visualTransformation = CurrencyVisualTransformation(),
             modifier = Modifier
@@ -227,20 +228,47 @@ private fun HeroAmountInput(
     }
 }
 
-// Formata centavos (Long) como "R$ 10,05" enquanto o usuário digita
-private class CurrencyVisualTransformation : VisualTransformation {
-    private val formatter = NumberFormat.getCurrencyInstance(Locale("pt", "BR"))
-
-    override fun filter(text: androidx.compose.ui.text.AnnotatedString): TransformedText {
-        val cents = text.text.toLongOrNull() ?: 0L
-        val formatted = formatter.format(cents / 100.0)
-
-        return TransformedText(
-            androidx.compose.ui.text.AnnotatedString(formatted),
-            object : OffsetMapping {
-                override fun originalToTransformed(offset: Int) = formatted.length
-                override fun transformedToOriginal(offset: Int) = text.text.length
+@Composable
+private fun SimpleTypeToggle(
+    selected: TransactionType,
+    onSelect: (TransactionType) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(GranaXPColors.Gray100, RoundedCornerShape(8.dp))
+            .padding(4.dp)
+    ) {
+        listOf(TransactionType.DESPESA to "Despesa", TransactionType.RECEITA to "Receita").forEach { (t, label) ->
+            val selectedNow = selected == t
+            Surface(
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(6.dp),
+                color = if (selectedNow) GranaXPColors.White else androidx.compose.ui.graphics.Color.Transparent,
+                tonalElevation = if (selectedNow) 1.dp else 0.dp,
+                shadowElevation = if (selectedNow) 1.dp else 0.dp
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { onSelect(t) }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        label,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (selectedNow) {
+                            if (t == TransactionType.DESPESA) GranaXPColors.Red600 else GranaXPColors.Primary
+                        } else GranaXPColors.Gray600
+                    )
+                }
             }
-        )
+        }
     }
 }
+
+

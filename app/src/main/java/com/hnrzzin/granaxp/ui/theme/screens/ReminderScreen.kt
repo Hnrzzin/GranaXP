@@ -1,6 +1,12 @@
 package com.hnrzzin.granaxp.ui.theme.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,6 +20,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,12 +34,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.firebase.Timestamp
 import com.hnrzzin.granaxp.model.ReminderModel
 import com.hnrzzin.granaxp.ui.theme.GranaXPColors
+import com.hnrzzin.granaxp.utils.CurrencyVisualTransformation
+import com.hnrzzin.granaxp.utils.rawDigitsToAmount
 import com.hnrzzin.granaxp.viewmodel.ReminderUiState
 import com.hnrzzin.granaxp.viewmodel.ReminderViewModel
+import com.hnrzzin.granaxp.utils.DateVisualTransformation
 
 @Composable
 fun ReminderContent(viewModel: ReminderViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var reminderToDelete by remember { mutableStateOf<ReminderModel?>(null) }
 
     when (val state = uiState) {
         is ReminderUiState.Loading -> {
@@ -54,24 +65,47 @@ fun ReminderContent(viewModel: ReminderViewModel) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().background(GranaXPColors.Background),
                     contentPadding = PaddingValues(16.dp, 16.dp, 16.dp, 96.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item {
                         Text("Próximos Vencimentos", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = GranaXPColors.Gray500)
                     }
                     items(state.reminders, key = { it.id }) { reminder ->
-                        ReminderCard(reminder = reminder, onToggleCompleted = { viewModel.markAsCompleted(reminder) })
+                        ReminderCard(
+                            reminder = reminder,
+                            onToggleCompleted = { viewModel.markAsCompleted(reminder) },
+                            onDelete = { reminderToDelete = reminder }
+                        )
                     }
                 }
             }
         }
     }
-}
 
+    reminderToDelete?.let { reminder ->
+        AlertDialog(
+            onDismissRequest = { reminderToDelete = null },
+            title = { Text("Excluir lembrete?") },
+            text = { Text("Tem certeza que deseja excluir \"${reminder.title}\"? Essa ação não pode ser desfeita.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteReminder(reminder)
+                    reminderToDelete = null
+                }) {
+                    Text("Excluir", color = GranaXPColors.Red600)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { reminderToDelete = null }) { Text("Cancelar") }
+            }
+        )
+    }
+}
 @Composable
 private fun ReminderCard(
     reminder: ReminderModel,
-    onToggleCompleted: () -> Unit
+    onToggleCompleted: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val isOverdue = !reminder.isCompleted && isDateOverdue(reminder.date)
 
@@ -84,52 +118,49 @@ private fun ReminderCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(bg, RoundedCornerShape(12.dp))
-            .then(Modifier.background(androidx.compose.ui.graphics.Color.Transparent))
-            .let { base ->
-                base
-            }
             .alpha(if (reminder.isCompleted) 0.6f else 1f)
-            .padding(1.dp)
             .background(bg, RoundedCornerShape(12.dp))
-            .padding(16.dp),
+            .border(BorderStroke(1.dp, border), RoundedCornerShape(12.dp))
+            .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = onToggleCompleted, enabled = !reminder.isCompleted, modifier = Modifier.size(28.dp)) {
-            Icon(
-                if (reminder.isCompleted) Icons.Default.CheckCircle else Icons.Default.Circle,
-                contentDescription = null,
-                tint = if (reminder.isCompleted) GranaXPColors.Emerald500 else GranaXPColors.Gray300
-            )
+        // Ícone de concluir com animação de troca
+        AnimatedContent(
+            targetState = reminder.isCompleted,
+            transitionSpec = {
+                (scaleIn(initialScale = 0.6f) togetherWith scaleOut(targetScale = 0.6f))
+            },
+            label = "reminderCheckAnim"
+        ) { completed ->
+            IconButton(onClick = onToggleCompleted, enabled = !completed, modifier = Modifier.size(24.dp)) {
+                Icon(
+                    if (completed) Icons.Default.CheckCircle else Icons.Default.Circle,
+                    contentDescription = null,
+                    tint = if (completed) GranaXPColors.Emerald500 else GranaXPColors.Gray300
+                )
+            }
         }
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 reminder.title,
-                fontSize = 14.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 textDecoration = if (reminder.isCompleted) TextDecoration.LineThrough else TextDecoration.None,
                 color = if (reminder.isCompleted) GranaXPColors.Gray500 else GranaXPColors.Gray800
             )
             Spacer(Modifier.height(2.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(bg, RoundedCornerShape(12.dp))
-                    .alpha(if (reminder.isCompleted) 0.6f else 1f)
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Default.CalendarMonth,
                     contentDescription = null,
                     tint = if (isOverdue) GranaXPColors.Rose500 else GranaXPColors.Gray400,
-                    modifier = Modifier.size(12.dp)
+                    modifier = Modifier.size(11.dp)
                 )
                 Spacer(Modifier.width(4.dp))
                 Text(
                     "Vence dia ${formatDay(reminder.date)}",
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     fontWeight = if (isOverdue) FontWeight.Medium else FontWeight.Normal,
                     color = if (isOverdue) GranaXPColors.Rose600 else GranaXPColors.Gray500
                 )
@@ -138,9 +169,12 @@ private fun ReminderCard(
         Text(
             "R$ %.2f".format(reminder.amount),
             fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
+            fontSize = 13.sp,
             color = if (reminder.isCompleted) GranaXPColors.Gray400 else GranaXPColors.Gray800
         )
+        IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
+            Icon(Icons.Default.Delete, contentDescription = "Deletar", tint = GranaXPColors.Red600, modifier = Modifier.size(15.dp))
+        }
     }
 }
 
@@ -160,69 +194,79 @@ fun AddReminderDialog(
 ) {
     var title by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
-    var dateText by remember { mutableStateOf("") } // formato dd/mm/aaaa
+    var dateText by remember { mutableStateOf("") }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Novo Lembrete de Pagamento") },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Descrição do Pagamento") },
-                    placeholder = { Text("Ex: Fatura Cartão de Crédito") },
-                    modifier = Modifier.fillMaxWidth()
+    com.hnrzzin.granaxp.ui.theme.components.AppModalBottomSheet(onDismiss = onDismiss) {
+        com.hnrzzin.granaxp.ui.theme.components.AppModalHeader(title = "Novo Lembrete de Pagamento", onClose = onDismiss)
+
+        OutlinedTextField(
+            value = title,
+            onValueChange = { title = it },
+            label = { Text("Descrição do Pagamento") },
+            placeholder = { Text("Ex: Fatura Cartão de Crédito") },
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = GranaXPColors.Rose600)
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = amount,
+            onValueChange = { input -> amount = input.filter { it.isDigit() } },
+            label = { Text("Valor (R$)") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            visualTransformation = CurrencyVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = GranaXPColors.Rose600)
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = dateText,
+            onValueChange = { input -> dateText = input.filter { it.isDigit() }.take(8) },
+            label = { Text("Data de Vencimento") },
+            placeholder = { Text("dd/mm/aaaa") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            visualTransformation = DateVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = GranaXPColors.Rose600)
+        )
+
+        Spacer(Modifier.height(24.dp))
+
+        Button(
+            onClick = {
+                val timestamp = parseDateToTimestamp(dateText) ?: Timestamp.now()
+                viewModel.createReminder(
+                    title = title,
+                    description = "",
+                    amount = rawDigitsToAmount(amount),
+                    date = timestamp,
+                    time = ""
                 )
-                OutlinedTextField(
-                    value = amount,
-                    onValueChange = { amount = it },
-                    label = { Text("Valor (R$)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = dateText,
-                    onValueChange = { dateText = it },
-                    label = { Text("Data de Vencimento") },
-                    placeholder = { Text("dd/mm/aaaa") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val timestamp = parseDateToTimestamp(dateText) ?: Timestamp.now()
-                    viewModel.createReminder(
-                        title = title,
-                        description = "",
-                        amount = amount.toDoubleOrNull() ?: 0.0,
-                        date = timestamp,
-                        time = ""
-                    )
-                    onDismiss()
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = GranaXPColors.Error)
-            ) {
-                Text("Agendar Lembrete")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
+                onDismiss()
+            },
+            enabled = title.isNotBlank() && amount.isNotBlank(),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = GranaXPColors.Rose600),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Text("Agendar Lembrete", color = GranaXPColors.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
         }
-    )
+    }
 }
 
-private fun parseDateToTimestamp(dateText: String): Timestamp? {
+private fun parseDateToTimestamp(rawDigits: String): Timestamp? {
+    if (rawDigits.length != 8) return null
     return try {
+        val day = rawDigits.substring(0, 2)
+        val month = rawDigits.substring(2, 4)
+        val year = rawDigits.substring(4, 8)
         val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale("pt", "BR"))
-        Timestamp(sdf.parse(dateText)!!)
+        Timestamp(sdf.parse("$day/$month/$year")!!)
     } catch (e: Exception) {
         null
     }
 }
+

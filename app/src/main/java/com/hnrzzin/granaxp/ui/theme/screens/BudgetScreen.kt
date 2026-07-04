@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,12 +22,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hnrzzin.granaxp.model.BudgetModel
 import com.hnrzzin.granaxp.model.BudgetPlanType
 import com.hnrzzin.granaxp.ui.theme.GranaXPColors
+import com.hnrzzin.granaxp.utils.CurrencyVisualTransformation
+import com.hnrzzin.granaxp.utils.rawDigitsToAmount
 import com.hnrzzin.granaxp.viewmodel.BudgetUiState
 import com.hnrzzin.granaxp.viewmodel.BudgetViewModel
 
 @Composable
 fun BudgetContent(viewModel: BudgetViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var budgetToEdit by remember { mutableStateOf<BudgetModel?>(null) }
+    var budgetToDelete by remember { mutableStateOf<BudgetModel?>(null) }
 
     when (val state = uiState) {
         is BudgetUiState.Loading -> {
@@ -49,9 +56,8 @@ fun BudgetContent(viewModel: BudgetViewModel) {
                 }
                 item {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        // Em BudgetSummaryCard, na chamada:
                         BudgetSummaryCard("Gastos Fixos", fixedTotal, GranaXPColors.Info, Modifier.weight(1f))
-                        BudgetSummaryCard("Gastos Variáveis", variableTotal, GranaXPColors.Orange600, Modifier.weight(1f)) // ✅ corrigido
+                        BudgetSummaryCard("Gastos Variáveis", variableTotal, GranaXPColors.Orange600, Modifier.weight(1f))
                     }
                 }
                 if (state.budgets.isEmpty()) {
@@ -73,7 +79,11 @@ fun BudgetContent(viewModel: BudgetViewModel) {
                                 }
                                 HorizontalDivider()
                                 state.budgets.forEach { budget ->
-                                    BudgetRow(budget)
+                                    BudgetRow(
+                                        budget = budget,
+                                        onEdit = { budgetToEdit = budget },
+                                        onDelete = { budgetToDelete = budget }
+                                    )
                                     HorizontalDivider()
                                 }
                             }
@@ -82,6 +92,35 @@ fun BudgetContent(viewModel: BudgetViewModel) {
                 }
             }
         }
+    }
+
+    // Modal de edição — reaproveita o AddBudgetSheet em modo edição
+    budgetToEdit?.let { budget ->
+        AddBudgetSheet(
+            viewModel = viewModel,
+            budgetToEdit = budget,
+            onDismiss = { budgetToEdit = null }
+        )
+    }
+
+    // Confirmação antes de deletar
+    budgetToDelete?.let { budget ->
+        AlertDialog(
+            onDismissRequest = { budgetToDelete = null },
+            title = { Text("Excluir gasto planejado?") },
+            text = { Text("Tem certeza que deseja excluir \"${budget.category}\"? Essa ação não pode ser desfeita.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteBudget(budget)
+                    budgetToDelete = null
+                }) {
+                    Text("Excluir", color = GranaXPColors.Red600)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { budgetToDelete = null }) { Text("Cancelar") }
+            }
+        )
     }
 }
 
@@ -100,7 +139,11 @@ private fun BudgetSummaryCard(label: String, value: Double, color: androidx.comp
 }
 
 @Composable
-private fun BudgetRow(budget: BudgetModel) {
+private fun BudgetRow(
+    budget: BudgetModel,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -120,22 +163,37 @@ private fun BudgetRow(budget: BudgetModel) {
                 fontSize = 10.sp
             )
         }
+        IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.Edit, contentDescription = "Editar", tint = GranaXPColors.Gray500, modifier = Modifier.size(16.dp))
+        }
+        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.Delete, contentDescription = "Deletar", tint = GranaXPColors.Red600, modifier = Modifier.size(16.dp))
+        }
     }
 }
 
 @Composable
 fun AddBudgetSheet(
     viewModel: BudgetViewModel,
+    budgetToEdit: BudgetModel? = null,
     onDismiss: () -> Unit
 ) {
-    var type by remember { mutableStateOf(BudgetPlanType.FIXO) }
-    var description by remember { mutableStateOf("") }
-    var amount by remember { mutableStateOf("") }
+    val isEditing = budgetToEdit != null
+
+    var type by remember { mutableStateOf(budgetToEdit?.type ?: BudgetPlanType.FIXO) }
+    var description by remember { mutableStateOf(budgetToEdit?.category ?: "") }
+    var amount by remember {
+        mutableStateOf(
+            budgetToEdit?.limitAmount?.let { (it * 100).toLong().toString() } ?: ""
+        )
+    }
 
     com.hnrzzin.granaxp.ui.theme.components.AppModalBottomSheet(onDismiss = onDismiss) {
-        com.hnrzzin.granaxp.ui.theme.components.AppModalHeader(title = "Novo Gasto Planejado", onClose = onDismiss)
+        com.hnrzzin.granaxp.ui.theme.components.AppModalHeader(
+            title = if (isEditing) "Editar Gasto Planejado" else "Novo Gasto Planejado",
+            onClose = onDismiss
+        )
 
-        // Toggle Fixo/Variável — pill com fundo cinza, opção ativa em branco elevado
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -154,6 +212,7 @@ fun AddBudgetSheet(
                     Box(
                         modifier = Modifier
                             .clickable(
+                                enabled = !isEditing,
                                 indication = null,
                                 interactionSource = remember { MutableInteractionSource() }
                             ) { type = planType }
@@ -173,6 +232,15 @@ fun AddBudgetSheet(
             }
         }
 
+        if (isEditing) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Para mudar o tipo, exclua e crie um novo gasto.",
+                fontSize = 11.sp,
+                color = GranaXPColors.Gray500
+            )
+        }
+
         Spacer(Modifier.height(20.dp))
 
         OutlinedTextField(
@@ -190,9 +258,10 @@ fun AddBudgetSheet(
 
         OutlinedTextField(
             value = amount,
-            onValueChange = { amount = it },
+            onValueChange = { input -> amount = input.filter { it.isDigit() } },
             label = { Text("Valor Estimado (R$)") },
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            visualTransformation = CurrencyVisualTransformation(),
             modifier = Modifier.fillMaxWidth(),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = if (type == BudgetPlanType.FIXO) GranaXPColors.Blue600 else GranaXPColors.Orange600
@@ -203,21 +272,35 @@ fun AddBudgetSheet(
 
         Button(
             onClick = {
-                viewModel.createBudget(
-                    category = description,
-                    limitAmount = amount.toDoubleOrNull() ?: 0.0,
-                    type = type
-                )
+                if (isEditing) {
+                    viewModel.updateBudget(
+                        budgetToEdit!!.copy(
+                            category = description,
+                            limitAmount = rawDigitsToAmount(amount)
+                        )
+                    )
+                } else {
+                    viewModel.createBudget(
+                        category = description,
+                        limitAmount = rawDigitsToAmount(amount),
+                        type = type
+                    )
+                }
                 onDismiss()
             },
-            enabled = description.isNotBlank() && amount.toDoubleOrNull() != null,
+            enabled = description.isNotBlank() && amount.isNotBlank(),
             modifier = Modifier.fillMaxWidth().height(52.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (type == BudgetPlanType.FIXO) GranaXPColors.Blue600 else GranaXPColors.Orange600
             ),
             shape = RoundedCornerShape(8.dp)
         ) {
-            Text("Salvar no Orçamento", color = GranaXPColors.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (isEditing) "Salvar Alterações" else "Salvar no Orçamento",
+                color = GranaXPColors.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold
+            )
         }
     }
 }

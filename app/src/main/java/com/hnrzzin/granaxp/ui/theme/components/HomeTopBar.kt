@@ -26,7 +26,8 @@ fun HomeTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .background(GranaXPColors.Emerald600)
-            .padding(horizontal = 16.dp, vertical = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 16.dp)
+            .statusBarsPadding(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
