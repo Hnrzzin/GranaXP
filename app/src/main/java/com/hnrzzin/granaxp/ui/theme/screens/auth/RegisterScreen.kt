@@ -21,10 +21,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.hnrzzin.granaxp.ui.theme.GranaXPTheme
 import com.hnrzzin.granaxp.viewmodel.AuthUiState
 import com.hnrzzin.granaxp.viewmodel.AuthViewModel
 
-private val GreenPrimary = Color(0xFF2E7D32)
 
 @Composable
 fun RegisterScreen(
@@ -46,7 +46,7 @@ fun RegisterScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().background(GreenPrimary),
+        modifier = Modifier.fillMaxSize().background(GranaXPTheme.colors.primary),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(Modifier.height(80.dp))
@@ -126,7 +126,7 @@ fun RegisterScreen(
                     },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = GreenPrimary),
+                    colors = ButtonDefaults.buttonColors(containerColor = GranaXPTheme.colors.primary),
                     enabled = uiState !is AuthUiState.Loading
                 ) {
                     if (uiState is AuthUiState.Loading) {
@@ -140,7 +140,7 @@ fun RegisterScreen(
 
                 TextButton(onClick = onNavigateToLogin) {
                     Text("Já tem conta? ", color = Color.Gray)
-                    Text("Entrar", color = GreenPrimary, fontWeight = FontWeight.Bold)
+                    Text("Entrar", color = GranaXPTheme.colors.primary, fontWeight = FontWeight.Bold)
                 }
             }
         }

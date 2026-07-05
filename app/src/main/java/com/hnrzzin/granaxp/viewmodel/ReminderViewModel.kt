@@ -5,7 +5,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.Timestamp
 import com.hnrzzin.granaxp.model.ReminderModel
+import com.hnrzzin.granaxp.model.TransactionType
 import com.hnrzzin.granaxp.repositories.ReminderRepository
+import com.hnrzzin.granaxp.repositories.TransactionRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +22,7 @@ sealed class ReminderUiState {
 class ReminderViewModel(private val userId: String) : ViewModel() {
 
     private val repository = ReminderRepository(userId)
+    private val transactionRepository = TransactionRepository(userId)
 
     private val _uiState = MutableStateFlow<ReminderUiState>(ReminderUiState.Loading)
     val uiState: StateFlow<ReminderUiState> = _uiState.asStateFlow()
@@ -49,7 +52,7 @@ class ReminderViewModel(private val userId: String) : ViewModel() {
     ) {
         viewModelScope.launch {
             try {
-                repository.createReminder(title, description,amount, date, time)
+                repository.createReminder(title, description, amount, date, time)
                 fetchReminders()
             } catch (e: Exception) {
                 _uiState.value = ReminderUiState.Error("Falha ao criar lembrete: ${e.message}")
@@ -57,14 +60,31 @@ class ReminderViewModel(private val userId: String) : ViewModel() {
         }
     }
 
+    /**
+     * Regra de negócio #4 (Lembretes):
+     * Ao concluir um lembrete, gera automaticamente uma transação de
+     * DESPESA correspondente ao valor do lembrete, descontando do saldo
+     * atual e entrando no Histórico unificado (isAutomatic=true).
+     * Guarda contra dupla conclusão (evita desconto duplicado).
+     */
     fun markAsCompleted(reminder: ReminderModel) {
+        if (reminder.isCompleted) return
+
         viewModelScope.launch {
             try {
+                transactionRepository.createTransaction(
+                    title = reminder.title,
+                    amount = reminder.amount,
+                    type = TransactionType.DESPESA,
+                    category = reminder.title,
+                    isAutomatic = true
+                )
+
                 val updatedReminder = reminder.copy(isCompleted = true)
                 repository.updateReminder(updatedReminder)
                 fetchReminders()
             } catch (e: Exception) {
-                _uiState.value = ReminderUiState.Error("Falha ao atualizar lembrete: ${e.message}")
+                _uiState.value = ReminderUiState.Error("Falha ao concluir lembrete: ${e.message}")
             }
         }
     }
@@ -91,14 +111,4 @@ class ReminderViewModel(private val userId: String) : ViewModel() {
         }
     }
 
-    // Filtra só os lembretes pendentes
-    fun getPendingReminders(reminders: List<ReminderModel>): List<ReminderModel> {
-        return reminders.filter { !it.isCompleted }
-    }
-}
-
-class ReminderViewModelFactory(private val userId: String) : ViewModelProvider.Factory {
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return ReminderViewModel(userId) as T
-    }
 }

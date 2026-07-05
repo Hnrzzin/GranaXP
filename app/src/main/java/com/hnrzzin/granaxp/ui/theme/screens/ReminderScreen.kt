@@ -35,6 +35,7 @@ import com.google.firebase.Timestamp
 import com.hnrzzin.granaxp.model.ReminderModel
 import com.hnrzzin.granaxp.ui.theme.GranaXPColors
 import com.hnrzzin.granaxp.utils.CurrencyVisualTransformation
+import com.hnrzzin.granaxp.utils.DateUtils
 import com.hnrzzin.granaxp.utils.rawDigitsToAmount
 import com.hnrzzin.granaxp.viewmodel.ReminderUiState
 import com.hnrzzin.granaxp.viewmodel.ReminderViewModel
@@ -195,10 +196,16 @@ fun AddReminderDialog(
     var title by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var dateText by remember { mutableStateOf("") }
+    var dateError by remember { mutableStateOf<String?>(null) }
 
     com.hnrzzin.granaxp.ui.theme.components.AppModalBottomSheet(onDismiss = onDismiss) {
         com.hnrzzin.granaxp.ui.theme.components.AppModalHeader(title = "Novo Lembrete de Pagamento", onClose = onDismiss)
 
+        Text(
+            "Ao concluir este lembrete, o valor será descontado do seu saldo atual.",
+            fontSize = 11.sp,
+            color = GranaXPColors.Gray500
+        )
         OutlinedTextField(
             value = title,
             onValueChange = { title = it },
@@ -207,6 +214,8 @@ fun AddReminderDialog(
             modifier = Modifier.fillMaxWidth(),
             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = GranaXPColors.Rose600)
         )
+
+
 
         Spacer(Modifier.height(12.dp))
 
@@ -224,7 +233,10 @@ fun AddReminderDialog(
 
         OutlinedTextField(
             value = dateText,
-            onValueChange = { input -> dateText = input.filter { it.isDigit() }.take(8) },
+            onValueChange = { input ->
+                dateText = input.filter { it.isDigit() }.take(8)
+                dateError = null // limpa o erro ao editar de novo
+            },
             label = { Text("Data de Vencimento") },
             placeholder = { Text("dd/mm/aaaa") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -233,21 +245,35 @@ fun AddReminderDialog(
             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = GranaXPColors.Rose600)
         )
 
+        dateError?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(it, fontSize = 11.sp, color = GranaXPColors.Error)
+        }
+
         Spacer(Modifier.height(24.dp))
 
         Button(
             onClick = {
-                val timestamp = parseDateToTimestamp(dateText) ?: Timestamp.now()
-                viewModel.createReminder(
-                    title = title,
-                    description = "",
-                    amount = rawDigitsToAmount(amount),
-                    date = timestamp,
-                    time = ""
-                )
-                onDismiss()
+                when (val result = DateUtils.validateFutureDate(dateText)) {
+                    is DateUtils.DateValidationResult.Valid -> {
+                        viewModel.createReminder(
+                            title = title,
+                            description = "",
+                            amount = rawDigitsToAmount(amount),
+                            date = result.timestamp,
+                            time = ""
+                        )
+                        onDismiss()
+                    }
+                    DateUtils.DateValidationResult.InvalidFormat -> {
+                        dateError = "Verifique se a data está correta."
+                    }
+                    DateUtils.DateValidationResult.PastDate -> {
+                        dateError = "A data não pode ser no passado."
+                    }
+                }
             },
-            enabled = title.isNotBlank() && amount.isNotBlank(),
+            enabled = title.isNotBlank() && amount.isNotBlank() && dateText.length == 8,
             modifier = Modifier.fillMaxWidth().height(52.dp),
             colors = ButtonDefaults.buttonColors(containerColor = GranaXPColors.Rose600),
             shape = RoundedCornerShape(8.dp)

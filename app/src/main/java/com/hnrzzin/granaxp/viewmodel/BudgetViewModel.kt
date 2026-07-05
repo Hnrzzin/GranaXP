@@ -28,6 +28,7 @@ class BudgetViewModel(private val userId: String) : ViewModel() {
 
     init {
         checkAndPayFixedBudgets()
+        checkAndCloseVariableBudgets()
         fetchBudgets()
     }
 
@@ -46,14 +47,23 @@ class BudgetViewModel(private val userId: String) : ViewModel() {
     private fun checkAndPayFixedBudgets() {
         viewModelScope.launch {
             try {
-                val unpaidBudgets = repository.getUnpaidBudgets()
-                val currentMonth = Calendar.getInstance().get(Calendar.MONTH)
-                unpaidBudgets.forEach { budget ->
-                    val lastPaymentMonth = budget.lastPaymentDate?.toDate()
-                        ?.let { Calendar.getInstance().apply { time = it }.get(Calendar.MONTH) }
+                val fixedBudgets = repository.getFixedBudgets()
+                val today = Calendar.getInstance()
+                val currentDay = today.get(Calendar.DAY_OF_MONTH)
+                val currentMonth = today.get(Calendar.MONTH)
+                val currentYear = today.get(Calendar.YEAR)
 
-                    if (lastPaymentMonth == null || lastPaymentMonth != currentMonth) {
-                        // AQUI: Passando isAutomatic = true para a transação do sistema
+                fixedBudgets.forEach { budget ->
+                    val lastPayment = budget.lastPaymentDate?.toDate()?.let {
+                        Calendar.getInstance().apply { time = it }
+                    }
+                    val alreadyPaidThisMonth = lastPayment != null &&
+                            lastPayment.get(Calendar.MONTH) == currentMonth &&
+                            lastPayment.get(Calendar.YEAR) == currentYear
+
+                    val dueDayReached = budget.dueDay?.let { currentDay >= it } ?: true
+
+                    if (!alreadyPaidThisMonth && dueDayReached) {
                         transactionRepository.createTransaction(
                             title = budget.category,
                             amount = budget.limitAmount,
@@ -71,6 +81,52 @@ class BudgetViewModel(private val userId: String) : ViewModel() {
                 }
             } catch (e: Exception) {
                 println("Falha ao verificar gastos fixos: $e")
+            }
+        }
+    }
+
+    /**
+     * Regra de negócio #4 (Gasto Variável):
+     * No momento em que o app detecta que o mês virou desde a última
+     * referência (`lastClosedMonth`), gera a transação automática com o
+     * valor atual declarado (que pode ter sido editado pelo usuário ao
+     * longo do mês) e rola o mesmo valor para o mês seguinte, atualizando
+     * apenas a referência de mês.
+     */
+    private fun checkAndCloseVariableBudgets() {
+        viewModelScope.launch {
+            try {
+                val variableBudgets = repository.getVariableBudgets()
+                val today = Calendar.getInstance()
+                val currentMonth = today.get(Calendar.MONTH)
+                val currentYear = today.get(Calendar.YEAR)
+
+                variableBudgets.forEach { budget ->
+                    val lastClosed = budget.lastClosedMonth?.toDate()?.let {
+                        Calendar.getInstance().apply { time = it }
+                    }
+                    val sameMonthAsReference = lastClosed != null &&
+                            lastClosed.get(Calendar.MONTH) == currentMonth &&
+                            lastClosed.get(Calendar.YEAR) == currentYear
+
+                    if (!sameMonthAsReference && budget.limitAmount > 0.0) {
+                        transactionRepository.createTransaction(
+                            title = budget.category,
+                            amount = budget.limitAmount,
+                            type = TransactionType.DESPESA,
+                            category = budget.category,
+                            isAutomatic = true
+                        )
+
+                        val updatedBudget = budget.copy(
+                            lastClosedMonth = Timestamp.now()
+                            // limitAmount permanece o mesmo — rola pro próximo mês
+                        )
+                        repository.updateBudget(updatedBudget)
+                    }
+                }
+            } catch (e: Exception) {
+                println("Falha ao fechar gastos variáveis do mês: $e")
             }
         }
     }

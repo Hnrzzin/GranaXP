@@ -10,14 +10,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-// Estado original: Responsável EXCLUSIVAMENTE pela Lista de Transações
 sealed class TransactionUiState {
     object Loading : TransactionUiState()
     data class Success(val transactions: List<TransactionModel>) : TransactionUiState()
     data class Error(val message: String) : TransactionUiState()
 }
 
-// NOVO ESTADO: Responsável EXCLUSIVAMENTE pelo fluxo de Salvar Transação
 sealed class TransactionSaveState {
     object Idle : TransactionSaveState()
     object Saving : TransactionSaveState()
@@ -28,11 +26,9 @@ sealed class TransactionSaveState {
 class TransactionViewModel(private val userId: String) : ViewModel() {
     private val repository = TransactionRepository(userId)
 
-    // Fluxo da lista
     private val _uiState = MutableStateFlow<TransactionUiState>(TransactionUiState.Loading)
     val uiState: StateFlow<TransactionUiState> = _uiState.asStateFlow()
 
-    // NOVO FLUXO: Controle da Ação de Salvar
     private val _saveState = MutableStateFlow<TransactionSaveState>(TransactionSaveState.Idle)
     val saveState: StateFlow<TransactionSaveState> = _saveState.asStateFlow()
 
@@ -60,11 +56,25 @@ class TransactionViewModel(private val userId: String) : ViewModel() {
         isAutomatic: Boolean = false
     ) {
         viewModelScope.launch {
-            _saveState.value = TransactionSaveState.Saving // 1. Trava o botão
+            _saveState.value = TransactionSaveState.Saving
+
+            // Regra de negócio crítica #1 — DESPESA exige histórico de RECEITA prévio.
+            // Guarda automática (isAutomatic=true, gastos fixos) não passa por essa checagem
+            // porque já pressupõe orçamento configurado pelo próprio usuário.
+            if (type == TransactionType.DESPESA && !isAutomatic) {
+                val hasIncome = repository.hasAnyIncome()
+                if (!hasIncome) {
+                    _saveState.value = TransactionSaveState.Error(
+                        "Você precisa registrar pelo menos uma receita antes de declarar uma despesa."
+                    )
+                    return@launch
+                }
+            }
+
             try {
                 repository.createTransaction(title, amount, type, category, isAutomatic)
-                fetchTransactions() // Atualiza a lista em background silenciosamente
-                _saveState.value = TransactionSaveState.Success // 2. Dispara a navegação
+                fetchTransactions()
+                _saveState.value = TransactionSaveState.Success
             } catch (e: Exception) {
                 _saveState.value = TransactionSaveState.Error("Falha ao criar transação: ${e.message}")
             }

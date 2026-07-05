@@ -15,7 +15,10 @@ data class BudgetModel(
     val limitAmount: Double = 0.0,
     val spentAmount: Double = 0.0,
     val type: BudgetPlanType = BudgetPlanType.VARIAVEL,
+    // Exclusivos do FIXO
     val dueDay: Int? = null,
     val isPaid: Boolean? = null,
-    val lastPaymentDate: Timestamp? = null
+    val lastPaymentDate: Timestamp? = null,
+    // Exclusivo do VARIAVEL — marca a referência do mês em que foi declarado/rolado
+    val lastClosedMonth: Timestamp? = null
 )

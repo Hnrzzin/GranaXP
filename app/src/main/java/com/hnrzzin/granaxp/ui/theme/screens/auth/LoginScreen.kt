@@ -23,8 +23,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hnrzzin.granaxp.viewmodel.AuthUiState
 import com.hnrzzin.granaxp.viewmodel.AuthViewModel
+import com.hnrzzin.granaxp.ui.theme.LocalGranaXPColors
+import com.hnrzzin.granaxp.ui.theme.GranaXPTheme
+import com.hnrzzin.granaxp.ui.theme.GranaXPColorScheme
 
-private val GreenPrimary = Color(0xFF2E7D32)
 
 @Composable
 fun LoginScreen(
@@ -50,7 +52,7 @@ fun LoginScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().background(GreenPrimary),
+        modifier = Modifier.fillMaxSize().background(GranaXPTheme.colors.primary),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(Modifier.height(80.dp))
@@ -127,7 +129,7 @@ fun LoginScreen(
                     onClick = { viewModel.login(email, password) },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = GreenPrimary),
+                    colors = ButtonDefaults.buttonColors(containerColor = GranaXPTheme.colors.primary),
                     enabled = uiState !is AuthUiState.Loading
                 ) {
                     if (uiState is AuthUiState.Loading) {
@@ -145,7 +147,7 @@ fun LoginScreen(
 
                 TextButton(onClick = onNavigateToRegister) {
                     Text("Não tem conta? ", color = Color.Gray)
-                    Text("Cadastre-se", color = GreenPrimary, fontWeight = FontWeight.Bold)
+                    Text("Cadastre-se", color = GranaXPTheme.colors.primary, fontWeight = FontWeight.Bold)
                 }
             }
         }

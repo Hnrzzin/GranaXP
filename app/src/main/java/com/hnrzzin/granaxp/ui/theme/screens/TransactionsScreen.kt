@@ -8,6 +8,8 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -37,7 +39,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hnrzzin.granaxp.model.TransactionModel
 import com.hnrzzin.granaxp.model.TransactionType
 import com.hnrzzin.granaxp.ui.theme.GranaXPColors
-import com.hnrzzin.granaxp.ui.theme.components.AddTransactionSheet
 import com.hnrzzin.granaxp.ui.theme.components.AppBottomNavigationBar
 import com.hnrzzin.granaxp.ui.theme.components.AppModalBottomSheet
 import com.hnrzzin.granaxp.ui.theme.components.AppModalHeader
@@ -429,12 +430,11 @@ fun EditTransactionSheet(
 
         Spacer(Modifier.height(12.dp))
 
-        OutlinedTextField(
-            value = category,
-            onValueChange = { category = it },
-            label = { Text("Categoria") },
-            modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = typeColor)
+        com.hnrzzin.granaxp.ui.theme.components.CategorySelectorField(
+            selectedCategory = category,
+            onCategoryChange = { category = it },
+            focusColor = typeColor,
+            modifier = Modifier.fillMaxWidth()
         )
 
         if (saveState is TransactionSaveState.Error) {
@@ -463,6 +463,141 @@ fun EditTransactionSheet(
                 CircularProgressIndicator(color = GranaXPColors.White, modifier = Modifier.size(20.dp))
             } else {
                 Text("Salvar Alterações", color = GranaXPColors.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+@Composable
+fun AddTransactionSheet(
+    viewModel: TransactionViewModel,
+    onDismiss: () -> Unit
+) {
+    val saveState by viewModel.saveState.collectAsState()
+
+    var type by remember { mutableStateOf(TransactionType.DESPESA) }
+    var amount by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf("") }
+
+    LaunchedEffect(saveState) {
+        if (saveState is TransactionSaveState.Success) {
+            onDismiss()
+        }
+    }
+
+    val typeColor = if (type == TransactionType.DESPESA) GranaXPColors.Red500 else GranaXPColors.Primary
+
+    AppModalBottomSheet(onDismiss = onDismiss) {
+        AppModalHeader(title = "Nova Transação", onClose = onDismiss)
+
+        SimpleTypeToggle(
+            selected = type,
+            onSelect = { type = it }
+        )
+
+        Spacer(Modifier.height(20.dp))
+
+        OutlinedTextField(
+            value = amount,
+            onValueChange = { input -> amount = input.filter { it.isDigit() } },
+            label = { Text("Valor (R$)") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            visualTransformation = CurrencyVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = typeColor)
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = title,
+            onValueChange = { title = it },
+            label = { Text("Título") },
+            placeholder = { Text("Ex: Compra no supermercado") },
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = typeColor)
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        com.hnrzzin.granaxp.ui.theme.components.CategorySelectorField(
+            selectedCategory = category,
+            onCategoryChange = { category = it },
+            focusColor = typeColor,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        if (saveState is TransactionSaveState.Error) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                (saveState as TransactionSaveState.Error).message,
+                color = GranaXPColors.Error,
+                fontSize = 12.sp
+            )
+        }
+
+        Spacer(Modifier.height(24.dp))
+
+        Button(
+            onClick = {
+                viewModel.createTransaction(
+                    title = title,
+                    amount = rawDigitsToAmount(amount),
+                    type = type,
+                    category = category
+                )
+            },
+            enabled = saveState !is TransactionSaveState.Saving && amount.isNotBlank() && title.isNotBlank(),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = typeColor),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            if (saveState is TransactionSaveState.Saving) {
+                CircularProgressIndicator(color = GranaXPColors.White, modifier = Modifier.size(20.dp))
+            } else {
+                Text("Salvar Transação", color = GranaXPColors.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+@Composable
+private fun SimpleTypeToggle(
+    selected: TransactionType,
+    onSelect: (TransactionType) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(GranaXPColors.Gray100, RoundedCornerShape(8.dp))
+            .padding(4.dp)
+    ) {
+        listOf(TransactionType.DESPESA to "Despesa", TransactionType.RECEITA to "Receita").forEach { (t, label) ->
+            val selectedNow = selected == t
+            Surface(
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(6.dp),
+                color = if (selectedNow) GranaXPColors.White else androidx.compose.ui.graphics.Color.Transparent,
+                tonalElevation = if (selectedNow) 1.dp else 0.dp,
+                shadowElevation = if (selectedNow) 1.dp else 0.dp
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { onSelect(t) }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        label,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (selectedNow) {
+                            if (t == TransactionType.DESPESA) GranaXPColors.Red600 else GranaXPColors.Primary
+                        } else GranaXPColors.Gray600
+                    )
+                }
             }
         }
     }

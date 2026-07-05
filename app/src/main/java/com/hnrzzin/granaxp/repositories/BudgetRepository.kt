@@ -32,15 +32,14 @@ class BudgetRepository(private val userId: String) {
         }
     }
 
-    suspend fun getUnpaidBudgets(): List<BudgetModel> {
+    suspend fun getVariableBudgets(): List<BudgetModel> {
         return try {
             val result = collection
-                .whereEqualTo("type", BudgetPlanType.FIXO.name)
-                .whereEqualTo("isPaid", false)
+                .whereEqualTo("type", BudgetPlanType.VARIAVEL.name)
                 .get().await()
             result.mapNotNull { it.toObject(BudgetModel::class.java) }
         } catch (e: Exception) {
-            println("Falha ao buscar gastos não pagos: $e")
+            println("Falha ao buscar gastos variáveis: $e")
             emptyList()
         }
     }
@@ -56,7 +55,9 @@ class BudgetRepository(private val userId: String) {
             limitAmount = limitAmount,
             type = type,
             dueDay = dueDay,
-            isPaid = if (type == BudgetPlanType.FIXO) false else null
+            isPaid = if (type == BudgetPlanType.FIXO) false else null,
+            // Referência inicial — evita fechamento automático imediato na criação
+            lastClosedMonth = if (type == BudgetPlanType.VARIAVEL) Timestamp.now() else null
         )
         try {
             collection.add(budget).await()
@@ -73,7 +74,8 @@ class BudgetRepository(private val userId: String) {
             "spentAmount" to budget.spentAmount,
             "dueDay" to budget.dueDay,
             "isPaid" to budget.isPaid,
-            "lastPaymentDate" to budget.lastPaymentDate
+            "lastPaymentDate" to budget.lastPaymentDate,
+            "lastClosedMonth" to budget.lastClosedMonth
         )
         try {
             collection.document(budget.id).update(updates).await()

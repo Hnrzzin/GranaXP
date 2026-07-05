@@ -187,6 +187,11 @@ fun AddBudgetSheet(
             budgetToEdit?.limitAmount?.let { (it * 100).toLong().toString() } ?: ""
         )
     }
+    var dueDayRaw by remember {
+        mutableStateOf(budgetToEdit?.dueDay?.toString() ?: "")
+    }
+
+    val typeColor = if (type == BudgetPlanType.FIXO) GranaXPColors.Blue600 else GranaXPColors.Orange600
 
     com.hnrzzin.granaxp.ui.theme.components.AppModalBottomSheet(onDismiss = onDismiss) {
         com.hnrzzin.granaxp.ui.theme.components.AppModalHeader(
@@ -249,9 +254,7 @@ fun AddBudgetSheet(
             label = { Text("Descrição") },
             placeholder = { Text("Ex: Aluguel") },
             modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = if (type == BudgetPlanType.FIXO) GranaXPColors.Blue600 else GranaXPColors.Orange600
-            )
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = typeColor)
         )
 
         Spacer(Modifier.height(12.dp))
@@ -263,12 +266,40 @@ fun AddBudgetSheet(
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             visualTransformation = CurrencyVisualTransformation(),
             modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = if (type == BudgetPlanType.FIXO) GranaXPColors.Blue600 else GranaXPColors.Orange600
-            )
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = typeColor)
         )
 
+        // Campo dueDay — só aparece pra Gastos Fixos, editável mesmo depois de criado
+        val dueDayInt = dueDayRaw.toIntOrNull()
+        val isDueDayValid = type != BudgetPlanType.FIXO || (dueDayInt != null && dueDayInt in 1..31)
+
+        if (type == BudgetPlanType.FIXO) {
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = dueDayRaw,
+                onValueChange = { input ->
+                    dueDayRaw = input.filter { it.isDigit() }.take(2)
+                },
+                label = { Text("Dia do Vencimento") },
+                placeholder = { Text("Ex: 10") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = typeColor),
+                isError = dueDayRaw.isNotBlank() && !isDueDayValid
+            )
+            if (dueDayRaw.isNotBlank() && !isDueDayValid) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Informe um dia válido entre 1 e 31.",
+                    fontSize = 11.sp,
+                    color = GranaXPColors.Error
+                )
+            }
+        }
+
         Spacer(Modifier.height(24.dp))
+
+        val canSave = description.isNotBlank() && amount.isNotBlank() && isDueDayValid
 
         Button(
             onClick = {
@@ -276,23 +307,23 @@ fun AddBudgetSheet(
                     viewModel.updateBudget(
                         budgetToEdit!!.copy(
                             category = description,
-                            limitAmount = rawDigitsToAmount(amount)
+                            limitAmount = rawDigitsToAmount(amount),
+                            dueDay = if (type == BudgetPlanType.FIXO) dueDayInt else null
                         )
                     )
                 } else {
                     viewModel.createBudget(
                         category = description,
                         limitAmount = rawDigitsToAmount(amount),
-                        type = type
+                        type = type,
+                        dueDay = if (type == BudgetPlanType.FIXO) dueDayInt else null
                     )
                 }
                 onDismiss()
             },
-            enabled = description.isNotBlank() && amount.isNotBlank(),
+            enabled = canSave,
             modifier = Modifier.fillMaxWidth().height(52.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (type == BudgetPlanType.FIXO) GranaXPColors.Blue600 else GranaXPColors.Orange600
-            ),
+            colors = ButtonDefaults.buttonColors(containerColor = typeColor),
             shape = RoundedCornerShape(8.dp)
         ) {
             Text(

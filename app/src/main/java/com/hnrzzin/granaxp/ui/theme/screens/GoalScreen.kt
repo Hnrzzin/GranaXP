@@ -169,15 +169,14 @@ fun AddGoalSheet(
 
     var deadlineType by remember { mutableStateOf(GoalDeadline.CURTO) }
     var title by remember { mutableStateOf("") }
-    var targetAmount by remember { mutableStateOf("") }     // dígitos crus
-    var currentAmount by remember { mutableStateOf("") }    // dígitos crus
-    var deadlineDateRaw by remember { mutableStateOf("") }  // dígitos crus
+    var targetAmount by remember { mutableStateOf("") }
+    var currentAmount by remember { mutableStateOf("") }
+    var deadlineDateRaw by remember { mutableStateOf("") }
     var alreadyDeclared by remember { mutableStateOf(false) }
 
     com.hnrzzin.granaxp.ui.theme.components.AppModalBottomSheet(onDismiss = onDismiss) {
         com.hnrzzin.granaxp.ui.theme.components.AppModalHeader(title = "Nova Meta Financeira", onClose = onDismiss)
 
-        // Seleção de Prazo — só Curto/Longo, contraste correto sempre
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             GoalDeadline.entries.filter { it != GoalDeadline.MEDIO }.forEach { deadline ->
                 val selected = deadlineType == deadline
@@ -248,6 +247,25 @@ fun AddGoalSheet(
             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = GranaXPColors.Purple500)
         )
 
+        // Validação da Regra #3 — só avalia quando o campo está completo (8 dígitos)
+        val dateValidation = if (deadlineDateRaw.length == 8) {
+            com.hnrzzin.granaxp.utils.DateUtils.validateFutureDate(deadlineDateRaw)
+        } else null
+
+        val isDateValid = deadlineDateRaw.length != 8 ||
+                dateValidation is com.hnrzzin.granaxp.utils.DateUtils.DateValidationResult.Valid
+
+        val dateErrorMessage = when (dateValidation) {
+            com.hnrzzin.granaxp.utils.DateUtils.DateValidationResult.InvalidFormat -> "Verifique se a data está correta."
+            com.hnrzzin.granaxp.utils.DateUtils.DateValidationResult.PastDate -> "A data não pode ser no passado."
+            else -> null
+        }
+
+        dateErrorMessage?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(it, fontSize = 11.sp, color = GranaXPColors.Error)
+        }
+
         // Regra de negócio crítica #1 — só entra em jogo se currentAmount > 0
         val hasInitialAmount = currentAmount.toLongOrNull()?.let { it > 0 } == true
         if (hasInitialAmount) {
@@ -289,19 +307,12 @@ fun AddGoalSheet(
         val canSave = title.isNotBlank() &&
                 targetAmount.isNotBlank() &&
                 (!hasInitialAmount || alreadyDeclared) &&
+                isDateValid &&
                 !isSaving
 
         Button(
             onClick = {
-                val parsedDate = if (deadlineDateRaw.length == 8) {
-                    try {
-                        val d = deadlineDateRaw.substring(0, 2)
-                        val m = deadlineDateRaw.substring(2, 4)
-                        val y = deadlineDateRaw.substring(4, 8)
-                        val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale("pt", "BR"))
-                        com.google.firebase.Timestamp(sdf.parse("$d/$m/$y")!!)
-                    } catch (e: Exception) { null }
-                } else null
+                val parsedDate = (dateValidation as? com.hnrzzin.granaxp.utils.DateUtils.DateValidationResult.Valid)?.timestamp
 
                 viewModel.createGoal(
                     title = title,
@@ -493,13 +504,6 @@ fun EditGoalSheet(
     var title by remember { mutableStateOf(goal.title) }
     var targetAmount by remember { mutableStateOf((goal.targetAmount * 100).toLong().toString()) }
     var deadlineType by remember { mutableStateOf(goal.deadline) }
-    var deadlineDateRaw by remember {
-        mutableStateOf(
-            goal.deadlineDate?.toDate()?.let {
-                java.text.SimpleDateFormat("ddMMyyyy", java.util.Locale("pt", "BR")).format(it)
-            } ?: ""
-        )
-    }
 
     com.hnrzzin.granaxp.ui.theme.components.AppModalBottomSheet(onDismiss = onDismiss) {
         com.hnrzzin.granaxp.ui.theme.components.AppModalHeader(title = "Editar Meta Financeira", onClose = onDismiss)
@@ -546,15 +550,19 @@ fun EditGoalSheet(
 
         Spacer(Modifier.height(12.dp))
 
-        OutlinedTextField(
-            value = deadlineDateRaw,
-            onValueChange = { input -> deadlineDateRaw = input.filter { it.isDigit() }.take(8) },
-            label = { Text("Data Limite") },
-            placeholder = { Text("dd/mm/aaaa") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            visualTransformation = com.hnrzzin.granaxp.utils.DateVisualTransformation(),
-            modifier = Modifier.fillMaxWidth()
-        )
+        // Data Limite travada — só é definida na criação da meta (regra de negócio)
+        Column {
+            Text("Data Limite", fontSize = 12.sp, color = GranaXPColors.Gray500)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                goal.deadlineDate?.toDate()?.let {
+                    java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale("pt", "BR")).format(it)
+                } ?: "Sem data definida",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = GranaXPColors.Gray700
+            )
+        }
 
         Spacer(Modifier.height(4.dp))
         Text(
@@ -572,22 +580,12 @@ fun EditGoalSheet(
 
         Button(
             onClick = {
-                val parsedDate = if (deadlineDateRaw.length == 8) {
-                    val d = deadlineDateRaw.substring(0, 2)
-                    val m = deadlineDateRaw.substring(2, 4)
-                    val y = deadlineDateRaw.substring(4, 8)
-                    try {
-                        val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale("pt", "BR"))
-                        com.google.firebase.Timestamp(sdf.parse("$d/$m/$y")!!)
-                    } catch (e: Exception) { goal.deadlineDate }
-                } else goal.deadlineDate
-
                 viewModel.updateGoalDetails(
                     goal = goal,
                     newTitle = title,
                     newTargetAmount = com.hnrzzin.granaxp.utils.rawDigitsToAmount(targetAmount),
                     newDeadline = deadlineType,
-                    newDeadlineDate = parsedDate
+                    newDeadlineDate = goal.deadlineDate // mantém a data original — não editável
                 )
             },
             enabled = title.isNotBlank() && actionState !is GoalActionState.Loading,
