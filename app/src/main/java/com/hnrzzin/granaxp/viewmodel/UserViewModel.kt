@@ -63,7 +63,9 @@ class UserViewModel(private val userId: String) : ViewModel() {
             } catch (e: Exception) {
                 _uiState.value = UserUiState.Error("Falha ao buscar perfil: ${e.message}")
             }
+
         }
+
     }
 
     fun updateName(newName: String) {
@@ -127,4 +129,5 @@ class UserViewModel(private val userId: String) : ViewModel() {
     fun resetActionState() {
         _actionState.value = UserActionState.Idle
     }
+
 }

@@ -5,9 +5,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.hnrzzin.granaxp.model.LessonModel
 import com.hnrzzin.granaxp.model.LessonProgressModel
+import com.hnrzzin.granaxp.model.RequirementType
 import com.hnrzzin.granaxp.repositories.AchievementRepository
 import com.hnrzzin.granaxp.repositories.LessonRepository
 import com.hnrzzin.granaxp.repositories.UserRepository
+import com.hnrzzin.granaxp.utils.XpUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -70,6 +72,12 @@ class LessonViewModel(private val userId: String) : ViewModel() {
     /**
      * Conclui a lição: marca/cria o progresso, concede XP (regra #5) e
      * verifica desbloqueio de conquistas de educação (regra #4).
+     *
+     * A checagem de conquistas é isolada em seu próprio try/catch: nesse ponto
+     * o progresso já foi persistido e o XP já foi creditado, então uma falha
+     * ao checar conquistas (ex: instabilidade de rede) não deve fazer o
+     * usuário achar que a conclusão inteira falhou — o que antes causava
+     * risco de XP duplicado numa nova tentativa.
      */
     fun completeLesson(lesson: LessonModel, existingProgressId: String?) {
         viewModelScope.launch {
@@ -77,16 +85,19 @@ class LessonViewModel(private val userId: String) : ViewModel() {
                 if (existingProgressId != null) {
                     repository.updateLessonProgress(existingProgressId, isCompleted = true)
                 } else {
-                    repository.createLessonProgress(lesson.id)
-                    // createLessonProgress não retorna o progresso criado com isCompleted=true,
-                    // então buscamos de novo e atualizamos.
-                    val allProgress = repository.getAllLessonProgress()
-                    val created = allProgress.find { it.lessonId == lesson.id }
-                    created?.let { repository.updateLessonProgress(it.id, isCompleted = true) }
+                    val newProgressId = repository.createLessonProgress(lesson.id)
+                    newProgressId?.let { repository.updateLessonProgress(it, isCompleted = true) }
                 }
 
-                val leveledUp = grantXp(lesson.xpReward)
-                checkEducationAchievements()
+                val leveledUp = XpUtils.grantXp(userRepository, lesson.xpReward)
+
+                // Isolado de propósito — ver doc acima.
+                try {
+                    checkEducationAchievements()
+                } catch (e: Exception) {
+                    println("Falha ao checar conquistas de educação: $e")
+                }
+
                 fetchLessons()
 
                 _completionEvent.value = LessonCompletionEvent.Completed(
@@ -111,33 +122,12 @@ class LessonViewModel(private val userId: String) : ViewModel() {
         }
     }
 
-    // Regra #5: earnXp soma XP e verifica subida de nível em loop,
-    // incrementando nextLevelXp em 20% a cada nível.
-    private suspend fun grantXp(amount: Int): Boolean {
-        val user = userRepository.getUser() ?: return false
-        var newXp = user.xp + amount
-        var newLevel = user.level
-        var newNextLevelXp = user.nextLevelXp
-        var leveledUp = false
-
-        while (newXp >= newNextLevelXp) {
-            newXp -= newNextLevelXp
-            newLevel += 1
-            newNextLevelXp = (newNextLevelXp * 1.2).toInt()
-            leveledUp = true
-        }
-
-        userRepository.updateUser(
-            user.copy(xp = newXp, level = newLevel, nextLevelXp = newNextLevelXp)
-        )
-        return leveledUp
-    }
-
     // Regra #4: conquistas de categoria EDUCACAO baseadas em completedLessonsCount.
     private suspend fun checkEducationAchievements() {
         val completedCount = repository.getAllLessonProgress().count { it.isCompleted }
         val achievements = achievementRepository.getAchievements()
             .filter { it.category == com.hnrzzin.granaxp.model.CategoriaConquista.EDUCACAO }
+            .filter { it.requirementType == RequirementType.LESSON_COUNT }
         val progressList = achievementRepository.getAchievementProgress(userId)
 
         achievements.forEach { achievement ->

@@ -24,12 +24,15 @@ import com.hnrzzin.granaxp.model.BudgetPlanType
 import com.hnrzzin.granaxp.ui.theme.GranaXPColors
 import com.hnrzzin.granaxp.utils.CurrencyVisualTransformation
 import com.hnrzzin.granaxp.utils.rawDigitsToAmount
+import com.hnrzzin.granaxp.viewmodel.BudgetActionState
+import com.hnrzzin.granaxp.viewmodel.BudgetAutomationWarning
 import com.hnrzzin.granaxp.viewmodel.BudgetUiState
 import com.hnrzzin.granaxp.viewmodel.BudgetViewModel
 
 @Composable
 fun BudgetContent(viewModel: BudgetViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val automationWarning by viewModel.automationWarning.collectAsStateWithLifecycle()
     var budgetToEdit by remember { mutableStateOf<BudgetModel?>(null) }
     var budgetToDelete by remember { mutableStateOf<BudgetModel?>(null) }
 
@@ -122,6 +125,23 @@ fun BudgetContent(viewModel: BudgetViewModel) {
             }
         )
     }
+
+    // Aviso não-bloqueante: falha nas automações mensais (pagamento fixo / fechamento variável)
+    // Não substitui a lista da tela — só informa, e o usuário dispensa.
+    automationWarning?.let { warning ->
+        val message = when (warning) {
+            is BudgetAutomationWarning.FixedPaymentFailed -> warning.message
+            is BudgetAutomationWarning.VariableCloseFailed -> warning.message
+        }
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissAutomationWarning() },
+            title = { Text("Aviso") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.dismissAutomationWarning() }) { Text("OK") }
+            }
+        )
+    }
 }
 
 @Composable
@@ -192,6 +212,19 @@ fun AddBudgetSheet(
     }
 
     val typeColor = if (type == BudgetPlanType.FIXO) GranaXPColors.Blue600 else GranaXPColors.Orange600
+
+    // Estado de ação vindo do ViewModel — regra de dueDay válido agora mora lá, não aqui.
+    val actionState by viewModel.actionState.collectAsStateWithLifecycle()
+    val isSaving = actionState is BudgetActionState.Loading
+    val errorMessage = (actionState as? BudgetActionState.Error)?.message
+
+    // Fecha o modal só quando o ViewModel confirmar sucesso (antes fechava direto no onClick).
+    LaunchedEffect(actionState) {
+        if (actionState is BudgetActionState.Success) {
+            viewModel.resetActionState()
+            onDismiss()
+        }
+    }
 
     com.hnrzzin.granaxp.ui.theme.components.AppModalBottomSheet(onDismiss = onDismiss) {
         com.hnrzzin.granaxp.ui.theme.components.AppModalHeader(
@@ -269,9 +302,10 @@ fun AddBudgetSheet(
             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = typeColor)
         )
 
-        // Campo dueDay — só aparece pra Gastos Fixos, editável mesmo depois de criado
+        // Campo dueDay — só aparece pra Gastos Fixos, editável mesmo depois de criado.
+        // A validação de range (1-31) NÃO é mais calculada aqui: o ViewModel valida
+        // ao salvar e devolve o erro via actionState (errorMessage abaixo).
         val dueDayInt = dueDayRaw.toIntOrNull()
-        val isDueDayValid = type != BudgetPlanType.FIXO || (dueDayInt != null && dueDayInt in 1..31)
 
         if (type == BudgetPlanType.FIXO) {
             Spacer(Modifier.height(12.dp))
@@ -285,21 +319,23 @@ fun AddBudgetSheet(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = typeColor),
-                isError = dueDayRaw.isNotBlank() && !isDueDayValid
+                isError = errorMessage != null
             )
-            if (dueDayRaw.isNotBlank() && !isDueDayValid) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Informe um dia válido entre 1 e 31.",
-                    fontSize = 11.sp,
-                    color = GranaXPColors.Error
-                )
-            }
+        }
+
+        errorMessage?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                it,
+                fontSize = 11.sp,
+                color = GranaXPColors.Error
+            )
         }
 
         Spacer(Modifier.height(24.dp))
 
-        val canSave = description.isNotBlank() && amount.isNotBlank() && isDueDayValid
+        
+        val canSave = description.isNotBlank() && amount.isNotBlank() && !isSaving
 
         Button(
             onClick = {
@@ -319,19 +355,26 @@ fun AddBudgetSheet(
                         dueDay = if (type == BudgetPlanType.FIXO) dueDayInt else null
                     )
                 }
-                onDismiss()
+
             },
             enabled = canSave,
             modifier = Modifier.fillMaxWidth().height(52.dp),
             colors = ButtonDefaults.buttonColors(containerColor = typeColor),
             shape = RoundedCornerShape(8.dp)
         ) {
-            Text(
-                if (isEditing) "Salvar Alterações" else "Salvar no Orçamento",
-                color = GranaXPColors.White,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold
-            )
+            if (isSaving) {
+                CircularProgressIndicator(
+                    color = GranaXPColors.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            } else {
+                Text(
+                    if (isEditing) "Salvar Alterações" else "Salvar no Orçamento",
+                    color = GranaXPColors.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
     }
 }

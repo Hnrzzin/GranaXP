@@ -10,17 +10,14 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Circle
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
-import androidx.compose.material3.*
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,17 +32,20 @@ import com.google.firebase.Timestamp
 import com.hnrzzin.granaxp.model.ReminderModel
 import com.hnrzzin.granaxp.ui.theme.GranaXPColors
 import com.hnrzzin.granaxp.utils.CurrencyVisualTransformation
-import com.hnrzzin.granaxp.utils.DateUtils
+import com.hnrzzin.granaxp.utils.DateVisualTransformation
 import com.hnrzzin.granaxp.utils.rawDigitsToAmount
+import com.hnrzzin.granaxp.viewmodel.ReminderActionState
 import com.hnrzzin.granaxp.viewmodel.ReminderUiState
 import com.hnrzzin.granaxp.viewmodel.ReminderViewModel
-import com.hnrzzin.granaxp.utils.DateVisualTransformation
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @Composable
 fun ReminderContent(viewModel: ReminderViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var reminderToDelete by remember { mutableStateOf<ReminderModel?>(null) }
 
+    // CORRIGIDO: Mapeando corretamente os estados vindos da ReminderUiState
     when (val state = uiState) {
         is ReminderUiState.Loading -> {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -59,8 +59,8 @@ fun ReminderContent(viewModel: ReminderViewModel) {
         }
         is ReminderUiState.Success -> {
             if (state.reminders.isEmpty()) {
-                Box(Modifier.fillMaxSize().padding(16.dp)) {
-                    EmptyStateCard("Nenhum lembrete cadastrado")
+                Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                    Text("Nenhum lembrete cadastrado", color = GranaXPColors.Gray500)
                 }
             } else {
                 LazyColumn(
@@ -102,6 +102,7 @@ fun ReminderContent(viewModel: ReminderViewModel) {
         )
     }
 }
+
 @Composable
 private fun ReminderCard(
     reminder: ReminderModel,
@@ -125,7 +126,6 @@ private fun ReminderCard(
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Ícone de concluir com animação de troca
         AnimatedContent(
             targetState = reminder.isCompleted,
             transitionSpec = {
@@ -179,24 +179,18 @@ private fun ReminderCard(
     }
 }
 
-private fun isDateOverdue(timestamp: Timestamp): Boolean {
-    return timestamp.toDate().before(java.util.Date())
-}
-
-private fun formatDay(timestamp: Timestamp): String {
-    val sdf = java.text.SimpleDateFormat("dd 'de' MMM", java.util.Locale("pt", "BR"))
-    return sdf.format(timestamp.toDate())
-}
-
 @Composable
 fun AddReminderDialog(
     viewModel: ReminderViewModel,
     onDismiss: () -> Unit
 ) {
+    val actionState by viewModel.actionState.collectAsStateWithLifecycle()
+    val isSaving = actionState is ReminderActionState.Loading
+    val errorMessage = (actionState as? ReminderActionState.Error)?.message
+
     var title by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var dateText by remember { mutableStateOf("") }
-    var dateError by remember { mutableStateOf<String?>(null) }
 
     com.hnrzzin.granaxp.ui.theme.components.AppModalBottomSheet(onDismiss = onDismiss) {
         com.hnrzzin.granaxp.ui.theme.components.AppModalHeader(title = "Novo Lembrete de Pagamento", onClose = onDismiss)
@@ -206,6 +200,7 @@ fun AddReminderDialog(
             fontSize = 11.sp,
             color = GranaXPColors.Gray500
         )
+        Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = title,
             onValueChange = { title = it },
@@ -214,8 +209,6 @@ fun AddReminderDialog(
             modifier = Modifier.fillMaxWidth(),
             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = GranaXPColors.Rose600)
         )
-
-
 
         Spacer(Modifier.height(12.dp))
 
@@ -233,10 +226,7 @@ fun AddReminderDialog(
 
         OutlinedTextField(
             value = dateText,
-            onValueChange = { input ->
-                dateText = input.filter { it.isDigit() }.take(8)
-                dateError = null // limpa o erro ao editar de novo
-            },
+            onValueChange = { input -> dateText = input.filter { it.isDigit() }.take(8) },
             label = { Text("Data de Vencimento") },
             placeholder = { Text("dd/mm/aaaa") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -245,8 +235,8 @@ fun AddReminderDialog(
             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = GranaXPColors.Rose600)
         )
 
-        dateError?.let {
-            Spacer(Modifier.height(4.dp))
+        errorMessage?.let {
+            Spacer(Modifier.height(8.dp))
             Text(it, fontSize = 11.sp, color = GranaXPColors.Error)
         }
 
@@ -254,45 +244,40 @@ fun AddReminderDialog(
 
         Button(
             onClick = {
-                when (val result = DateUtils.validateFutureDate(dateText)) {
-                    is DateUtils.DateValidationResult.Valid -> {
-                        viewModel.createReminder(
-                            title = title,
-                            description = "",
-                            amount = rawDigitsToAmount(amount),
-                            date = result.timestamp,
-                            time = ""
-                        )
-                        onDismiss()
-                    }
-                    DateUtils.DateValidationResult.InvalidFormat -> {
-                        dateError = "Verifique se a data está correta."
-                    }
-                    DateUtils.DateValidationResult.PastDate -> {
-                        dateError = "A data não pode ser no passado."
-                    }
-                }
+                viewModel.createReminder(
+                    title = title,
+                    description = "",
+                    amount = rawDigitsToAmount(amount),
+                    dateRaw = dateText,
+                    time = ""
+                )
             },
-            enabled = title.isNotBlank() && amount.isNotBlank() && dateText.length == 8,
+            enabled = title.isNotBlank() && amount.isNotBlank() && dateText.length == 8 && !isSaving,
             modifier = Modifier.fillMaxWidth().height(52.dp),
             colors = ButtonDefaults.buttonColors(containerColor = GranaXPColors.Rose600),
             shape = RoundedCornerShape(8.dp)
         ) {
-            Text("Agendar Lembrete", color = GranaXPColors.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            if (isSaving) {
+                CircularProgressIndicator(color = GranaXPColors.White, modifier = Modifier.size(20.dp))
+            } else {
+                Text("Agendar Lembrete", color = GranaXPColors.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+
+    LaunchedEffect(actionState) {
+        if (actionState is ReminderActionState.Success) {
+            viewModel.resetActionState()
+            onDismiss()
         }
     }
 }
 
-private fun parseDateToTimestamp(rawDigits: String): Timestamp? {
-    if (rawDigits.length != 8) return null
-    return try {
-        val day = rawDigits.substring(0, 2)
-        val month = rawDigits.substring(2, 4)
-        val year = rawDigits.substring(4, 8)
-        val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale("pt", "BR"))
-        Timestamp(sdf.parse("$day/$month/$year")!!)
-    } catch (e: Exception) {
-        null
-    }
+private fun isDateOverdue(timestamp: Timestamp): Boolean {
+    return timestamp.toDate().before(java.util.Date())
 }
 
+private fun formatDay(timestamp: Timestamp): String {
+    val sdf = SimpleDateFormat("dd 'de' MMM", Locale("pt", "BR"))
+    return sdf.format(timestamp.toDate())
+}

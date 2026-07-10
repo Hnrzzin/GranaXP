@@ -41,15 +41,14 @@ class LessonRepository(private val userId: String) {
         }
     }
 
-    suspend fun createLessonProgress(lessonId: String) {
-        val progress = LessonProgressModel(
-            userId = userId,
-            lessonId = lessonId
-        )
-        try {
-            progressCollection.add(progress).await()
+    suspend fun createLessonProgress(lessonId: String): String? {
+        val progress = LessonProgressModel(userId = userId, lessonId = lessonId)
+        return try {
+            val ref = progressCollection.add(progress).await()
+            ref.id
         } catch (e: Exception) {
             println("Falha ao criar progresso: $e")
+            null
         }
     }
 

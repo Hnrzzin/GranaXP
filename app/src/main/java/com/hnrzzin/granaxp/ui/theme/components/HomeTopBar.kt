@@ -34,7 +34,7 @@ fun HomeTopBar(
         // Esquerda: nome do app
         Column {
             Text(
-                "FinEdu",
+                "GranaXP",
                 color = GranaXPColors.White,
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp

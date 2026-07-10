@@ -247,27 +247,10 @@ fun AddGoalSheet(
             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = GranaXPColors.Purple500)
         )
 
-        // Validação da Regra #3 — só avalia quando o campo está completo (8 dígitos)
-        val dateValidation = if (deadlineDateRaw.length == 8) {
-            com.hnrzzin.granaxp.utils.DateUtils.validateFutureDate(deadlineDateRaw)
-        } else null
-
-        val isDateValid = deadlineDateRaw.length != 8 ||
-                dateValidation is com.hnrzzin.granaxp.utils.DateUtils.DateValidationResult.Valid
-
-        val dateErrorMessage = when (dateValidation) {
-            com.hnrzzin.granaxp.utils.DateUtils.DateValidationResult.InvalidFormat -> "Verifique se a data está correta."
-            com.hnrzzin.granaxp.utils.DateUtils.DateValidationResult.PastDate -> "A data não pode ser no passado."
-            else -> null
-        }
-
-        dateErrorMessage?.let {
-            Spacer(Modifier.height(4.dp))
-            Text(it, fontSize = 11.sp, color = GranaXPColors.Error)
-        }
 
         // Regra de negócio crítica #1 — só entra em jogo se currentAmount > 0
         val hasInitialAmount = currentAmount.toLongOrNull()?.let { it > 0 } == true
+
         if (hasInitialAmount) {
             Spacer(Modifier.height(16.dp))
             Row(
@@ -304,23 +287,20 @@ fun AddGoalSheet(
 
         Spacer(Modifier.height(20.dp))
 
+
         val canSave = title.isNotBlank() &&
                 targetAmount.isNotBlank() &&
-                (!hasInitialAmount || alreadyDeclared) &&
-                isDateValid &&
                 !isSaving
 
         Button(
             onClick = {
-                val parsedDate = (dateValidation as? com.hnrzzin.granaxp.utils.DateUtils.DateValidationResult.Valid)?.timestamp
-
                 viewModel.createGoal(
                     title = title,
                     targetAmount = com.hnrzzin.granaxp.utils.rawDigitsToAmount(targetAmount),
                     currentAmount = com.hnrzzin.granaxp.utils.rawDigitsToAmount(currentAmount),
                     deadline = deadlineType,
-                    alreadyDeclared = if (hasInitialAmount) alreadyDeclared else true,
-                    deadlineDate = parsedDate
+                    alreadyDeclared = alreadyDeclared,
+                    deadlineDateRaw = deadlineDateRaw
                 )
             },
             enabled = canSave,

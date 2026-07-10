@@ -106,14 +106,24 @@ fun LearnScreen(
         }
     }
 
-    selectedLesson?.let { item ->
+    selectedLesson?.let { selected ->
+        // Busca a versão ATUAL do item em uiState — não a referência capturada
+        // no momento do clique. Isso importa porque abrir a lição já dispara
+        // startLesson() (criando o progresso no Firestore) seguido de um
+        // fetchLessons(); sem essa releitura, o progressId usado em
+        // "Concluir Aula" ficaria desatualizado (null) e completeLesson()
+        // criaria um SEGUNDO documento de progresso em vez de atualizar o
+        // existente — causando a lição nunca aparecer como concluída.
+        val currentItem = (uiState as? LessonUiState.Success)?.lessons
+            ?.find { it.lesson.id == selected.lesson.id } ?: selected
+
         LessonDetailDialog(
-            lessonWithProgress = item,
-            index = (uiState as? LessonUiState.Success)?.lessons?.indexOf(item) ?: 0,
-            alreadyCompleted = item.progress?.isCompleted == true,
+            lessonWithProgress = currentItem,
+            index = (uiState as? LessonUiState.Success)?.lessons?.indexOf(currentItem) ?: 0,
+            alreadyCompleted = currentItem.progress?.isCompleted == true,
             onDismiss = { selectedLesson = null },
             onComplete = {
-                viewModel.completeLesson(item.lesson, item.progress?.id)
+                viewModel.completeLesson(currentItem.lesson, currentItem.progress?.id)
             }
         )
     }
@@ -123,6 +133,7 @@ fun LearnScreen(
         if (completionEvent is LessonCompletionEvent.Completed) {
             selectedLesson = null
             viewModel.resetCompletionEvent()
+            userViewModel.fetchUser() // atualiza XP/nível exibidos no HomeTopBar
         }
     }
 }

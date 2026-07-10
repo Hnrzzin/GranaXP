@@ -19,14 +19,13 @@ import java.util.Locale
 sealed class HomeUiState {
     object Loading : HomeUiState()
 
-    // SUBSTITUA A CLASSE Success POR ESTA:
     data class Success(
         val user: UserModel,
         val totalBalance: Double,
         val totalIncome: Double,
         val totalExpense: Double,
         val pendingRemindersCount: Int,
-        val recentTransactions: List<TransactionUIData> // NOVO: Propriedade adicionada
+        val recentTransactions: List<TransactionUIData>
     ) : HomeUiState()
 
     data class Error(val message: String) : HomeUiState()
@@ -49,7 +48,6 @@ class HomeViewModel(private val userId: String) : ViewModel() {
         viewModelScope.launch {
             _uiState.value = HomeUiState.Loading
             try {
-                // Ajustado para o nome correto do seu repositório: getUser()
                 val user = userRepository.getUser() ?: throw Exception("Usuário não encontrado.")
 
                 val transactions = transactionRepository.getTransactions()
@@ -60,70 +58,36 @@ class HomeViewModel(private val userId: String) : ViewModel() {
                 val reminders = reminderRepository.getReminders()
                 val pendingRemindersCount = reminders.count { !it.isCompleted }
 
-                // --- INÍCIO DA ALTERAÇÃO ---
-
-                // 1. Mapeamento e formatação dos dados
                 val dateFormatter = SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR"))
                 val recentTransactionsList = transactions
-                    .sortedByDescending { it.date } // Ordena das mais recentes para as mais antigas
-                    .take(3) // Extrai apenas as 3 últimas transações para o dashboard
+                    .sortedByDescending { it.date }
+                    .take(3)
                     .map { model ->
                         TransactionUIData(
                             description = model.title,
                             category = model.category,
-                            date = dateFormatter.format(model.date.toDate()), // Converte Timestamp para String
+                            date = dateFormatter.format(model.date.toDate()),
                             amount = model.amount,
                             type = model.type
                         )
                     }
 
-                // 2. Emissão do estado atualizado
                 _uiState.value = HomeUiState.Success(
                     user = user,
                     totalBalance = totalBalance,
                     totalIncome = totalIncome,
                     totalExpense = totalExpense,
                     pendingRemindersCount = pendingRemindersCount,
-                    recentTransactions = recentTransactionsList // NOVO: Injentando a lista mapeada
+                    recentTransactions = recentTransactionsList
                 )
-
-                // --- FIM DA ALTERAÇÃO ---
-
             } catch (e: Exception) {
                 _uiState.value = HomeUiState.Error("Erro ao carregar o painel: ${e.message}")
             }
         }
     }
 
-    fun earnXp(amount: Int) {
-        viewModelScope.launch {
-            val currentState = _uiState.value
-            if (currentState is HomeUiState.Success) {
-                val user = currentState.user
-                var newXp = user.xp + amount
-                var newLevel = user.level
-                var newNextLevelXp = user.nextLevelXp
-
-                while (newXp >= newNextLevelXp) {
-                    newXp -= newNextLevelXp
-                    newLevel++
-                    newNextLevelXp = (newNextLevelXp * 1.2).toInt()
-                }
-
-                val updatedUser = user.copy(
-                    level = newLevel,
-                    xp = newXp,
-                    nextLevelXp = newNextLevelXp
-                )
-
-                try {
-                    // Ajustado para o nome correto do seu repositório: updateUser()
-                    userRepository.updateUser(updatedUser)
-                    fetchDashboardData()
-                } catch (e: Exception) {
-                    _uiState.value = HomeUiState.Error("Erro ao salvar progresso de XP: ${e.message}")
-                }
-            }
-        }
-    }
+    // earnXp() foi removido — era código órfão (nunca chamado por nenhuma tela).
+    // A concessão de XP agora vive só onde a regra de negócio realmente acontece:
+    // LessonViewModel.completeLesson() e GoalViewModel.updateGoalProgress()/createGoal(),
+    // ambos usando o utilitário compartilhado XpUtils.grantXp().
 }

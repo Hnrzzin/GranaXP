@@ -14,17 +14,39 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
+// 1. CORRIGIDO: Estado isolado para carregar e listar os orçamentos na tela
 sealed class BudgetUiState {
     object Loading : BudgetUiState()
     data class Success(val budgets: List<BudgetModel>) : BudgetUiState()
     data class Error(val message: String) : BudgetUiState()
 }
 
+// 2. CORRIGIDO: Estado isolado para os fluxos de Criar, Editar e Deletar (Formulários)
+sealed class BudgetActionState {
+    object Idle : BudgetActionState()
+    object Loading : BudgetActionState()
+    object Success : BudgetActionState()
+    data class Error(val message: String) : BudgetActionState()
+}
+
+sealed class BudgetAutomationWarning {
+    data class FixedPaymentFailed(val message: String) : BudgetAutomationWarning()
+    data class VariableCloseFailed(val message: String) : BudgetAutomationWarning()
+}
+
 class BudgetViewModel(private val userId: String) : ViewModel() {
     private val repository = BudgetRepository(userId)
     private val transactionRepository = TransactionRepository(userId)
+
+    // CORRIGIDO: Agora usa BudgetUiState para monitorar a lista
     private val _uiState = MutableStateFlow<BudgetUiState>(BudgetUiState.Loading)
     val uiState: StateFlow<BudgetUiState> = _uiState.asStateFlow()
+
+    private val _actionState = MutableStateFlow<BudgetActionState>(BudgetActionState.Idle)
+    val actionState: StateFlow<BudgetActionState> = _actionState.asStateFlow()
+
+    private val _automationWarning = MutableStateFlow<BudgetAutomationWarning?>(null)
+    val automationWarning: StateFlow<BudgetAutomationWarning?> = _automationWarning.asStateFlow()
 
     init {
         checkAndPayFixedBudgets()
@@ -42,6 +64,14 @@ class BudgetViewModel(private val userId: String) : ViewModel() {
                 _uiState.value = BudgetUiState.Error("Falha ao buscar orçamentos: ${e.message}")
             }
         }
+    }
+
+    fun resetActionState() {
+        _actionState.value = BudgetActionState.Idle
+    }
+
+    fun dismissAutomationWarning() {
+        _automationWarning.value = null
     }
 
     private fun checkAndPayFixedBudgets() {
@@ -80,7 +110,9 @@ class BudgetViewModel(private val userId: String) : ViewModel() {
                     }
                 }
             } catch (e: Exception) {
-                println("Falha ao verificar gastos fixos: $e")
+                _automationWarning.value = BudgetAutomationWarning.FixedPaymentFailed(
+                    "Não foi possível confirmar o pagamento de alguns gastos fixos. Verifique sua conexão."
+                )
             }
         }
     }
@@ -126,29 +158,47 @@ class BudgetViewModel(private val userId: String) : ViewModel() {
                     }
                 }
             } catch (e: Exception) {
-                println("Falha ao fechar gastos variáveis do mês: $e")
+                _automationWarning.value = BudgetAutomationWarning.VariableCloseFailed(
+                    "Não foi possível fechar alguns gastos variáveis do mês. Verifique sua conexão."
+                )
             }
         }
     }
 
     fun createBudget(category: String, limitAmount: Double, type: BudgetPlanType, dueDay: Int? = null) {
         viewModelScope.launch {
+            _actionState.value = BudgetActionState.Loading
+
+            if (type == BudgetPlanType.FIXO && (dueDay == null || dueDay !in 1..31)) {
+                _actionState.value = BudgetActionState.Error("Informe um dia de vencimento válido entre 1 e 31.")
+                return@launch
+            }
+
             try {
                 repository.createBudget(category, limitAmount, type, dueDay)
                 fetchBudgets()
+                _actionState.value = BudgetActionState.Success // CORRIGIDO: Agora chama o objeto sem parâmetros perfeitamente
             } catch (e: Exception) {
-                _uiState.value = BudgetUiState.Error("Falha ao criar orçamento: ${e.message}")
+                _actionState.value = BudgetActionState.Error("Falha ao criar orçamento: ${e.message}")
             }
         }
     }
 
     fun updateBudget(budget: BudgetModel) {
         viewModelScope.launch {
+            _actionState.value = BudgetActionState.Loading
+
+            if (budget.type == BudgetPlanType.FIXO && (budget.dueDay == null || budget.dueDay !in 1..31)) {
+                _actionState.value = BudgetActionState.Error("Informe um dia de vencimento válido entre 1 e 31.")
+                return@launch
+            }
+
             try {
                 repository.updateBudget(budget)
                 fetchBudgets()
+                _actionState.value = BudgetActionState.Success // CORRIGIDO: Sucesso simples de ação concluída
             } catch (e: Exception) {
-                _uiState.value = BudgetUiState.Error("Falha ao atualizar orçamento: ${e.message}")
+                _actionState.value = BudgetActionState.Error("Falha ao atualizar orçamento: ${e.message}")
             }
         }
     }
@@ -159,7 +209,7 @@ class BudgetViewModel(private val userId: String) : ViewModel() {
                 repository.deleteBudget(budget)
                 fetchBudgets()
             } catch (e: Exception) {
-                _uiState.value = BudgetUiState.Error("Falha ao deletar orçamento: ${e.message}")
+                _actionState.value = BudgetActionState.Error("Falha ao deletar orçamento: ${e.message}")
             }
         }
     }

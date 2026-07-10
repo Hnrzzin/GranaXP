@@ -22,6 +22,16 @@ sealed class AchievementUiState {
     data class Error(val message: String) : AchievementUiState()
 }
 
+/**
+ * Responsável apenas por buscar e exibir conquistas + progresso (usado no ProfileScreen).
+ *
+ * O desbloqueio em si (checagem de requisito x progresso atual) acontece dentro
+ * de cada feature ViewModel logo após a ação relevante:
+ * - TransactionViewModel.checkFinancialAchievements() (categoria FINANCAS)
+ * - LessonViewModel.checkEducationAchievements() (categoria EDUCACAO)
+ *
+ * Isso evita acoplamento cruzado entre ViewModels — nenhum precisa conhecer o outro.
+ */
 class AchievementViewModel(private val userId: String) : ViewModel() {
 
     private val repository = AchievementRepository()
@@ -40,7 +50,6 @@ class AchievementViewModel(private val userId: String) : ViewModel() {
                 val achievements = repository.getAchievements()
                 val progressList = repository.getAchievementProgress(userId)
 
-                // Combina conquista com seu progresso
                 val achievementsWithProgress = achievements.map { achievement ->
                     val progress = progressList.find { it.achievementId == achievement.id }
                     AchievementWithProgress(achievement = achievement, progress = progress)
@@ -53,58 +62,6 @@ class AchievementViewModel(private val userId: String) : ViewModel() {
         }
     }
 
-    // Chamado após qualquer ação do usuário para verificar
-    // se alguma conquista deve ser desbloqueada
-    fun checkAndUnlockAchievements(
-        transactionCount: Int,
-        completedLessonsCount: Int,
-        totalSaved: Double
-    ) {
-        viewModelScope.launch {
-            try {
-                val achievements = repository.getAchievements()
-                val progressList = repository.getAchievementProgress(userId)
-
-                achievements.forEach { achievement ->
-                    val progress = progressList.find { it.achievementId == achievement.id }
-
-                    // Só verifica conquistas ainda não desbloqueadas
-                    if (progress?.isUnlocked == true) return@forEach
-
-                    // Define o progresso atual baseado na categoria
-                    val currentProgress = when (achievement.category) {
-                        com.hnrzzin.granaxp.model.CategoriaConquista.FINANCAS -> transactionCount
-                        com.hnrzzin.granaxp.model.CategoriaConquista.EDUCACAO -> completedLessonsCount
-                        com.hnrzzin.granaxp.model.CategoriaConquista.GERAL -> totalSaved.toInt()
-                    }
-
-                    val shouldUnlock = currentProgress >= achievement.requirementValue
-
-                    if (progress != null) {
-                        repository.updateAchievementProgress(
-                            progressId = progress.id,
-                            currentProgress = currentProgress,
-                            isUnlocked = shouldUnlock
-                        )
-                    } else {
-                        // Cria o progresso se ainda não existir
-                        repository.createAchievementProgress(
-                            userId = userId,
-                            achievementId = achievement.id,
-                            currentProgress = currentProgress,
-                            isUnlocked = shouldUnlock
-                        )
-                    }
-                }
-
-                fetchAchievements()
-            } catch (e: Exception) {
-                _uiState.value = AchievementUiState.Error("Falha ao verificar conquistas: ${e.message}")
-            }
-        }
-    }
-
-    // Conta conquistas desbloqueadas
     fun getUnlockedCount(achievements: List<AchievementWithProgress>): Int {
         return achievements.count { it.progress?.isUnlocked == true }
     }
@@ -112,6 +69,7 @@ class AchievementViewModel(private val userId: String) : ViewModel() {
 
 class AchievementViewModelFactory(private val userId: String) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        @Suppress("UNCHECKED_CAST")
         return AchievementViewModel(userId) as T
     }
 }

@@ -1,6 +1,7 @@
 package com.hnrzzin.granaxp.ui.theme.screens.auth
 
 import android.util.Log
+import android.util.Patterns
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,6 +26,7 @@ import com.hnrzzin.granaxp.ui.theme.GranaXPTheme
 import com.hnrzzin.granaxp.viewmodel.AuthUiState
 import com.hnrzzin.granaxp.viewmodel.AuthViewModel
 
+private const val MIN_PASSWORD_LENGTH = 6
 
 @Composable
 fun RegisterScreen(
@@ -36,7 +38,26 @@ fun RegisterScreen(
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    var confirmPasswordVisible by remember { mutableStateOf(false) }
+
+    // Só mostra erros de validação depois que o usuário tentou submeter,
+    // pra não bombardear campos vazios com erro antes de qualquer interação.
+    var attemptedSubmit by remember { mutableStateOf(false) }
+
+    val nameError = attemptedSubmit && name.isBlank()
+    val emailError = attemptedSubmit &&
+            (email.isBlank() || !Patterns.EMAIL_ADDRESS.matcher(email).matches())
+    val passwordError = attemptedSubmit &&
+            (password.isBlank() || password.length < MIN_PASSWORD_LENGTH)
+    val confirmPasswordError = attemptedSubmit &&
+            (confirmPassword.isBlank() || confirmPassword != password)
+
+    val isFormValid = name.isNotBlank() &&
+            email.isNotBlank() && Patterns.EMAIL_ADDRESS.matcher(email).matches() &&
+            password.length >= MIN_PASSWORD_LENGTH &&
+            confirmPassword == password
 
     LaunchedEffect(uiState) {
         if (uiState is AuthUiState.Authenticated) {
@@ -76,6 +97,10 @@ fun RegisterScreen(
                     value = name, onValueChange = { name = it },
                     label = { Text("Nome") },
                     leadingIcon = { Icon(Icons.Default.Person, null) },
+                    isError = nameError,
+                    supportingText = {
+                        if (nameError) Text("Informe seu nome")
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp), singleLine = true
                 )
@@ -85,6 +110,10 @@ fun RegisterScreen(
                     label = { Text("Email") },
                     leadingIcon = { Icon(Icons.Default.Email, null) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    isError = emailError,
+                    supportingText = {
+                        if (emailError) Text("Informe um email válido")
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp), singleLine = true
                 )
@@ -104,6 +133,33 @@ fun RegisterScreen(
                     visualTransformation = if (passwordVisible) VisualTransformation.None
                     else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    isError = passwordError,
+                    supportingText = {
+                        if (passwordError) Text("Mínimo de $MIN_PASSWORD_LENGTH caracteres")
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp), singleLine = true
+                )
+                Spacer(Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = confirmPassword, onValueChange = { confirmPassword = it },
+                    label = { Text("Confirmar senha") },
+                    leadingIcon = { Icon(Icons.Default.Lock, null) },
+                    trailingIcon = {
+                        IconButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
+                            Icon(
+                                if (confirmPasswordVisible) Icons.Default.VisibilityOff
+                                else Icons.Default.Visibility, null
+                            )
+                        }
+                    },
+                    visualTransformation = if (confirmPasswordVisible) VisualTransformation.None
+                    else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    isError = confirmPasswordError,
+                    supportingText = {
+                        if (confirmPasswordError) Text("As senhas não coincidem")
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp), singleLine = true
                 )
@@ -121,8 +177,11 @@ fun RegisterScreen(
 
                 Button(
                     onClick = {
-                        Log.d("TraceRegister", "RegisterScreen: Botão clicado. Enviando dados: email=$email")
-                        viewModel.register(name = name, email = email, pass = password)
+                        attemptedSubmit = true
+                        if (isFormValid) {
+                            Log.d("TraceRegister", "RegisterScreen: Botão clicado. Enviando dados: email=$email")
+                            viewModel.register(name = name, email = email, pass = password)
+                        }
                     },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(12.dp),
