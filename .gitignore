@@ -13,3 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+node_modules/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+firestore-tests/firestore-schema-analysis.local.md

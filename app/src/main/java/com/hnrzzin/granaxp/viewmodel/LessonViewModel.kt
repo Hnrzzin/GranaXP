@@ -3,40 +3,23 @@ package com.hnrzzin.granaxp.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.hnrzzin.granaxp.model.LessonModel
-import com.hnrzzin.granaxp.model.LessonProgressModel
 import com.hnrzzin.granaxp.model.RequirementType
 import com.hnrzzin.granaxp.repositories.AchievementRepository
 import com.hnrzzin.granaxp.repositories.LessonRepository
+import com.hnrzzin.granaxp.repositories.ModuleRepository
 import com.hnrzzin.granaxp.repositories.UserRepository
 import com.hnrzzin.granaxp.utils.XpUtils
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-data class LessonWithProgress(
-    val lesson: LessonModel,
-    val progress: LessonProgressModel?
-)
-
-sealed class LessonUiState {
-    object Loading : LessonUiState()
-    data class Success(val lessons: List<LessonWithProgress>) : LessonUiState()
-    data class Error(val message: String) : LessonUiState()
-}
-
-// Sinaliza para a UI que uma lição foi concluída com sucesso,
-// permitindo exibir feedback (ex: "+100 XP", subiu de nível) e fechar o modal.
-sealed class LessonCompletionEvent {
-    object Idle : LessonCompletionEvent()
-    data class Completed(val xpEarned: Int, val leveledUp: Boolean) : LessonCompletionEvent()
-    data class Error(val message: String) : LessonCompletionEvent()
-}
-
 class LessonViewModel(private val userId: String) : ViewModel() {
 
     private val repository = LessonRepository(userId)
+    private val moduleRepository = ModuleRepository()
     private val userRepository = UserRepository(userId)
     private val achievementRepository = AchievementRepository()
 
@@ -46,27 +29,75 @@ class LessonViewModel(private val userId: String) : ViewModel() {
     private val _completionEvent = MutableStateFlow<LessonCompletionEvent>(LessonCompletionEvent.Idle)
     val completionEvent: StateFlow<LessonCompletionEvent> = _completionEvent.asStateFlow()
 
+    private val _contentUiState = MutableStateFlow<LessonContentUiState>(LessonContentUiState.Idle)
+    val contentUiState: StateFlow<LessonContentUiState> = _contentUiState.asStateFlow()
+
+    private var fetchLessonsJob: Job? = null
+    private var loadLessonBlocksJob: Job? = null
+
     init {
         fetchLessons()
     }
 
     fun fetchLessons() {
-        viewModelScope.launch {
+        fetchLessonsJob?.cancel()
+        fetchLessonsJob = viewModelScope.launch {
             _uiState.value = LessonUiState.Loading
             try {
-                val lessons = repository.getLessons()
+                val modules = moduleRepository.getModules()
+                val allLessons = repository.getLessons()
                 val progressList = repository.getAllLessonProgress()
-
-                val lessonsWithProgress = lessons.map { lesson ->
-                    val progress = progressList.find { it.lessonId == lesson.id }
-                    LessonWithProgress(lesson = lesson, progress = progress)
+                val lessonsByModule = modules.associate { module ->
+                    module.idModule to repository.getLessonsByModule(module.idModule)
                 }
 
-                _uiState.value = LessonUiState.Success(lessonsWithProgress)
+                _uiState.value = buildLearningContent(
+                    modules = modules,
+                    allLessons = allLessons,
+                    progressList = progressList,
+                    lessonsByModule = lessonsByModule,
+                )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _uiState.value = LessonUiState.Error("Falha ao buscar lições: ${e.message}")
+                _uiState.value = LessonUiState.Error("Falha ao carregar a trilha: ${e.message}")
             }
         }
+    }
+
+    fun openLesson(lesson: LessonWithProgress) {
+        if (!lesson.isStarted) {
+            startLesson(lesson.lesson.id)
+        }
+        loadLessonBlocks(lesson.lesson.id)
+    }
+
+    private fun loadLessonBlocks(lessonId: String) {
+        loadLessonBlocksJob?.cancel()
+        loadLessonBlocksJob = viewModelScope.launch {
+            _contentUiState.value = LessonContentUiState.Loading(lessonId)
+            try {
+                val blocks = repository.getLessonBlocks(lessonId)
+                if ((_contentUiState.value as? LessonContentUiState.Loading)?.lessonId == lessonId) {
+                    _contentUiState.value = LessonContentUiState.Success(lessonId, blocks)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if ((_contentUiState.value as? LessonContentUiState.Loading)?.lessonId == lessonId) {
+                    _contentUiState.value = LessonContentUiState.Error(
+                        lessonId = lessonId,
+                        message = "Falha ao carregar o conteúdo: ${e.message}",
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearLessonContent() {
+        loadLessonBlocksJob?.cancel()
+        loadLessonBlocksJob = null
+        _contentUiState.value = LessonContentUiState.Idle
     }
 
     /**
@@ -79,9 +110,11 @@ class LessonViewModel(private val userId: String) : ViewModel() {
      * usuário achar que a conclusão inteira falhou — o que antes causava
      * risco de XP duplicado numa nova tentativa.
      */
-    fun completeLesson(lesson: LessonModel, existingProgressId: String?) {
+    fun completeLesson(lessonWithProgress: LessonWithProgress) {
         viewModelScope.launch {
             try {
+                val lesson = lessonWithProgress.lesson
+                val existingProgressId = lessonWithProgress.progress?.id
                 if (existingProgressId != null) {
                     repository.updateLessonProgress(existingProgressId, isCompleted = true)
                 } else {
@@ -111,7 +144,7 @@ class LessonViewModel(private val userId: String) : ViewModel() {
     }
 
     // Inicia (abre) uma lição ainda não acessada, sem marcar como concluída.
-    fun startLesson(lessonId: String) {
+    private fun startLesson(lessonId: String) {
         viewModelScope.launch {
             try {
                 repository.createLessonProgress(lessonId)
@@ -148,16 +181,6 @@ class LessonViewModel(private val userId: String) : ViewModel() {
         _completionEvent.value = LessonCompletionEvent.Idle
     }
 
-    // Regra #3: a primeira lição sempre desbloqueada; as demais dependem da anterior completa.
-    fun isLessonUnlocked(index: Int, lessons: List<LessonWithProgress>): Boolean {
-        if (index == 0) return true
-        val previous = lessons.getOrNull(index - 1) ?: return false
-        return previous.progress?.isCompleted == true
-    }
-
-    fun getCompletedCount(lessons: List<LessonWithProgress>): Int {
-        return lessons.count { it.progress?.isCompleted == true }
-    }
 }
 
 class LessonViewModelFactory(private val userId: String) : ViewModelProvider.Factory {

@@ -1,6 +1,7 @@
-{
+﻿{
   "project_info": {
     "project_number": "136652496724",
+    "firebase_url": "https://granaxp-d7927-default-rtdb.firebaseio.com",
     "project_id": "granaxp-d7927",
     "storage_bucket": "granaxp-d7927.firebasestorage.app"
   },
@@ -9,10 +10,15 @@
       "client_info": {
         "mobilesdk_app_id": "1:136652496724:android:beb8f00e594b33ce18f2c1",
         "android_client_info": {
-          "package_name": "com.hnrzzin.granaxp"
+          "package_name": "com.Hnrzzin.granaxp"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "136652496724-stevn1a1krnp3onsp09rddim3avlejen.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyCIr4GaS2nO9hcTFDCaOflpiJol8feIlS0"
@@ -20,7 +26,41 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "136652496724-stevn1a1krnp3onsp09rddim3avlejen.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:136652496724:android:599bf1b89fc71d1d18f2c1",
+        "android_client_info": {
+          "package_name": "com.hnrzzin.granaxp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "136652496724-stevn1a1krnp3onsp09rddim3avlejen.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCIr4GaS2nO9hcTFDCaOflpiJol8feIlS0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "136652496724-stevn1a1krnp3onsp09rddim3avlejen.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

@@ -1,6 +1,7 @@
 package com.hnrzzin.granaxp.repositories
 
 import com.google.firebase.firestore.FirebaseFirestore
+import com.hnrzzin.granaxp.model.LessonBlock
 import com.hnrzzin.granaxp.model.LessonModel
 import com.hnrzzin.granaxp.model.LessonProgressModel
 import kotlinx.coroutines.tasks.await
@@ -14,23 +15,35 @@ class LessonRepository(private val userId: String) {
         return try {
             val result = lessonsCollection.orderBy("order").get().await()
             result.mapNotNull { it.toObject(LessonModel::class.java) }
+                .sortedWith(compareBy<LessonModel> { it.order }.thenBy { it.id })
         } catch (e: Exception) {
             println("Falha ao buscar lições: $e")
             emptyList()
         }
     }
 
-    suspend fun getLessonProgress(progressId: String): LessonProgressModel? {
-        return try {
-            val result = progressCollection.document(progressId).get().await()
-            // Converte diretamente o documento para o objeto
-            result.toObject(LessonProgressModel::class.java)
-        } catch (e: Exception) {
-            println("Falha ao buscar progresso: $e")
-            null
-        }
+    suspend fun getLessonsByModule(moduleId: String): List<LessonModel> {
+        return lessonsCollection.whereEqualTo("moduleId", moduleId).get().await()
+            .mapNotNull { it.toObject(LessonModel::class.java) }
+            .sortedWith(compareBy<LessonModel> { it.order }.thenBy { it.id })
     }
 
+
+    // esta no repo do Lesson pq ela depende de lesson dai faz mais sentido colocar aqui mesmo ao inves de criar um arquivo separado
+    suspend fun getLessonBlocks(lessonId: String): List<LessonBlock> {
+        return lessonsCollection.document(lessonId).collection("blocks")
+            .orderBy("order")
+            .get()
+            .await()
+            .map { document ->
+                document.toObject(LessonBlock::class.java).copy(id = document.id)
+            }
+            .sortedWith(compareBy<LessonBlock> { it.order }.thenBy { it.id })
+    }
+
+
+
+    // operações relacionadas ao progresso do usuario
     suspend fun updateLessonProgress(progressId: String, isCompleted: Boolean) {
         if (progressId.isEmpty()) return
         val updates = mapOf("isCompleted" to isCompleted)

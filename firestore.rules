@@ -1,0 +1,372 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ==============================================================
+    // Assumptions and supported data models
+    // ==============================================================
+    // Global, client-readable catalogs (client writes denied):
+    // - lessons/{lessonId} and lessons/{lessonId}/blocks/{blockId}
+    // - modules/{moduleId}
+    // - achievements/{achievementId}
+    // - dailyMissions/{missionId}
+    //
+    // Private V1 data, scoped by the UID in the path:
+    // - users/{uid}
+    // - users/{uid}/{transactions|goals|budgets|reminders}/{documentId}
+    // - users/{uid}/lessonProgress/{progressId}
+    //
+    // Transition paths for Phase 1:
+    // - users/{uid}/achievementProgress/{achievementId}
+    // - users/{uid}/dailyMissionProgress/{yyyy-MM-dd}
+    // - users/{uid}/learningStats/streak
+    //
+    // Legacy transition path:
+    // - achievementProgress/{progressId}, owned through its userId field
+    //
+    // Known legacy fields are accepted only where existing V1 documents need
+    // them: transactions.automatic/isAutomatic, budgets.paid/isPaid,
+    // lessonProgress.completed/isCompleted and achievementProgress.unlocked.
+    // Unknown fields and unknown paths are denied.
+
+    // ==============================================================
+    // Shared helpers
+    // ==============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    function hasRequired(data, fields) {
+      return data.keys().hasAll(fields);
+    }
+
+    function hasOnly(data, fields) {
+      return data.keys().hasOnly(fields);
+    }
+
+    function validString(data, field, maxLength) {
+      return data[field] is string && data[field].size() <= maxLength;
+    }
+
+    function validNonEmptyString(data, field, maxLength) {
+      return data[field] is string
+        && data[field].size() > 0
+        && data[field].size() <= maxLength;
+    }
+
+    function validOptionalString(data, field, maxLength) {
+      return !data.keys().hasAny([field])
+        || data[field] == null
+        || (data[field] is string && data[field].size() <= maxLength);
+    }
+
+    function validOptionalBool(data, field) {
+      return !data.keys().hasAny([field])
+        || data[field] == null
+        || data[field] is bool;
+    }
+
+    function validOptionalInt(data, field, minimum, maximum) {
+      return !data.keys().hasAny([field])
+        || data[field] == null
+        || (data[field] is int
+          && data[field] >= minimum
+          && data[field] <= maximum);
+    }
+
+    function validOptionalTimestamp(data, field) {
+      return !data.keys().hasAny([field])
+        || data[field] == null
+        || data[field] is timestamp;
+    }
+
+    function validOptionalList(data, field, maxSize) {
+      return !data.keys().hasAny([field])
+        || (data[field] is list && data[field].size() <= maxSize);
+    }
+
+    function validMoney(value) {
+      return value is number && value >= 0 && value <= 1000000000000;
+    }
+
+    function validEmail(value) {
+      return value is string
+        && value.size() > 3
+        && value.size() <= 254
+        && value.matches('^[^@]+@[^@]+[.][^@]+$');
+    }
+
+    // ==============================================================
+    // Domain validators for current V1 private data
+    // ==============================================================
+    function isValidUser(data) {
+      return hasRequired(data, ['name', 'email', 'level', 'xp', 'nextLevelXp'])
+        && hasOnly(data, ['name', 'email', 'level', 'xp', 'nextLevelXp'])
+        && validNonEmptyString(data, 'name', 120)
+        && validEmail(data.email)
+        && data.level is int && data.level >= 1 && data.level <= 1000000
+        && data.xp is int && data.xp >= 0 && data.xp <= 1000000000
+        && data.nextLevelXp is int
+        && data.nextLevelXp >= 1
+        && data.nextLevelXp <= 1000000000;
+    }
+
+    function isValidTransaction(data) {
+      return hasRequired(data, ['title', 'category', 'amount', 'type', 'date'])
+        && hasOnly(data, [
+          'title', 'category', 'amount', 'type', 'date',
+          'automatic', 'isAutomatic'
+        ])
+        && data.keys().hasAny(['automatic', 'isAutomatic'])
+        && validString(data, 'title', 200)
+        && validString(data, 'category', 120)
+        && validMoney(data.amount)
+        && data.type is string && data.type in ['RECEITA', 'DESPESA']
+        && data.date is timestamp
+        && validOptionalBool(data, 'automatic')
+        && validOptionalBool(data, 'isAutomatic');
+    }
+
+    function isValidGoal(data) {
+      return hasRequired(data, [
+          'title', 'targetAmount', 'currentAmount', 'deadline'
+        ])
+        && hasOnly(data, [
+          'title', 'targetAmount', 'currentAmount', 'deadline', 'deadlineDate'
+        ])
+        && validString(data, 'title', 200)
+        && validMoney(data.targetAmount)
+        && validMoney(data.currentAmount)
+        && data.deadline is string
+        && data.deadline in ['CURTO', 'MEDIO', 'LONGO']
+        && validOptionalTimestamp(data, 'deadlineDate');
+    }
+
+    function isValidBudget(data) {
+      return hasRequired(data, [
+          'category', 'limitAmount', 'spentAmount', 'type'
+        ])
+        && hasOnly(data, [
+          'category', 'limitAmount', 'spentAmount', 'type', 'dueDay',
+          'isPaid', 'paid', 'lastPaymentDate', 'lastClosedMonth'
+        ])
+        && validString(data, 'category', 120)
+        && validMoney(data.limitAmount)
+        && validMoney(data.spentAmount)
+        && data.type is string && data.type in ['FIXO', 'VARIAVEL']
+        && validOptionalInt(data, 'dueDay', 1, 31)
+        && validOptionalBool(data, 'isPaid')
+        && validOptionalBool(data, 'paid')
+        && validOptionalTimestamp(data, 'lastPaymentDate')
+        && validOptionalTimestamp(data, 'lastClosedMonth');
+    }
+
+    function isValidReminder(data) {
+      return hasRequired(data, [
+          'title', 'description', 'amount', 'date', 'time', 'isCompleted'
+        ])
+        && hasOnly(data, [
+          'title', 'description', 'amount', 'date', 'time', 'isCompleted'
+        ])
+        && validString(data, 'title', 200)
+        && validString(data, 'description', 1000)
+        && validMoney(data.amount)
+        && data.date is timestamp
+        && validString(data, 'time', 20)
+        && data.isCompleted is bool;
+    }
+
+    function isValidLessonProgress(data, uid, progressId) {
+      return hasRequired(data, ['lessonId', 'isCompleted', 'lastAccessed'])
+        && hasOnly(data, [
+          'userId', 'lessonId', 'isCompleted', 'completed',
+          'completedActivityIds', 'lastAccessed', 'completedAt'
+        ])
+        && validNonEmptyString(data, 'lessonId', 200)
+        && data.isCompleted is bool
+        && validOptionalBool(data, 'completed')
+        && validOptionalList(data, 'completedActivityIds', 100)
+        && data.lastAccessed is timestamp
+        && validOptionalTimestamp(data, 'completedAt')
+        && (
+          (data.keys().hasAny(['userId'])
+            && data.userId is string
+            && data.userId == uid)
+          || (!data.keys().hasAny(['userId']) && data.lessonId == progressId)
+        );
+    }
+
+    function isValidUserAchievementProgress(data, achievementId) {
+      return hasRequired(data, [
+          'achievementId', 'currentProgress', 'isUnlocked'
+        ])
+        && hasOnly(data, [
+          'achievementId', 'currentProgress', 'isUnlocked', 'unlockedAt'
+        ])
+        && data.achievementId is string
+        && data.achievementId == achievementId
+        && data.currentProgress is int
+        && data.currentProgress >= 0
+        && data.currentProgress <= 1000000000
+        && data.isUnlocked is bool
+        && validOptionalTimestamp(data, 'unlockedAt');
+    }
+
+    function isValidLegacyAchievementProgress(data) {
+      return hasRequired(data, [
+          'userId', 'achievementId', 'currentProgress',
+          'isUnlocked', 'lastUpdated'
+        ])
+        && hasOnly(data, [
+          'userId', 'achievementId', 'currentProgress',
+          'isUnlocked', 'unlocked', 'lastUpdated'
+        ])
+        && validNonEmptyString(data, 'userId', 128)
+        && validNonEmptyString(data, 'achievementId', 200)
+        && data.currentProgress is int
+        && data.currentProgress >= 0
+        && data.currentProgress <= 1000000000
+        && data.isUnlocked is bool
+        && validOptionalBool(data, 'unlocked')
+        && data.lastUpdated is timestamp;
+    }
+
+    // ==============================================================
+    // Global catalogs
+    // ==============================================================
+    match /lessons/{lessonId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+
+      match /blocks/{blockId} {
+        allow read: if isAuthenticated();
+        allow write: if false;
+      }
+    }
+
+    match /modules/{moduleId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /achievements/{achievementId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /dailyMissions/{missionId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // ==============================================================
+    // User-owned private data
+    // ==============================================================
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid)
+        && isValidUser(request.resource.data)
+        && request.auth.token.email is string
+        && request.resource.data.email == request.auth.token.email;
+      allow update: if isOwner(uid)
+        && isValidUser(request.resource.data)
+        && request.resource.data.email == resource.data.email;
+      allow delete: if isOwner(uid);
+
+      match /transactions/{transactionId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid) && isValidTransaction(request.resource.data);
+        allow update: if isOwner(uid)
+          && isValidTransaction(request.resource.data)
+          && request.resource.data.date == resource.data.date;
+        allow delete: if isOwner(uid);
+      }
+
+      match /goals/{goalId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid) && isValidGoal(request.resource.data);
+        allow update: if isOwner(uid) && isValidGoal(request.resource.data);
+        allow delete: if isOwner(uid);
+      }
+
+      match /budgets/{budgetId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid) && isValidBudget(request.resource.data);
+        allow update: if isOwner(uid)
+          && isValidBudget(request.resource.data)
+          && request.resource.data.type == resource.data.type;
+        allow delete: if isOwner(uid);
+      }
+
+      match /reminders/{reminderId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid) && isValidReminder(request.resource.data);
+        allow update: if isOwner(uid) && isValidReminder(request.resource.data);
+        allow delete: if isOwner(uid);
+      }
+
+      match /lessonProgress/{progressId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && isValidLessonProgress(request.resource.data, uid, progressId);
+        allow update: if isOwner(uid)
+          && isValidLessonProgress(request.resource.data, uid, progressId)
+          && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['userId', 'lessonId']);
+        allow delete: if isOwner(uid);
+      }
+
+      match /achievementProgress/{achievementId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && isValidUserAchievementProgress(request.resource.data, achievementId);
+        allow update: if isOwner(uid)
+          && isValidUserAchievementProgress(request.resource.data, achievementId)
+          && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['achievementId']);
+        allow delete: if isOwner(uid);
+      }
+
+      // These two future paths participate in the planned atomic
+      // Daily Mission -> streak -> XP operation. Until that operation and its
+      // cross-document invariants exist, clients may read their own state but
+      // may not create, alter or delete it.
+      match /dailyMissionProgress/{dateId} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+
+      match /learningStats/streak {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+    }
+
+    // ==============================================================
+    // Legacy root achievement progress
+    // ==============================================================
+    match /achievementProgress/{progressId} {
+      allow read: if isAuthenticated()
+        && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid
+        && isValidLegacyAchievementProgress(request.resource.data);
+      allow update: if isAuthenticated()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.achievementId == resource.data.achievementId
+        && isValidLegacyAchievementProgress(request.resource.data);
+      allow delete: if isAuthenticated()
+        && resource.data.userId == request.auth.uid;
+    }
+
+    // Explicit default deny for every unlisted collection and nested path.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
