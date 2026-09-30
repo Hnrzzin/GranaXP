@@ -1,6 +1,7 @@
 package com.hnrzzin.granaxp.ui.theme.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -32,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -45,17 +49,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.compose.AsyncImage
+import com.hnrzzin.granaxp.model.ActivityType
 import com.hnrzzin.granaxp.model.LessonBlock
+import com.hnrzzin.granaxp.model.orderedAlternatives
 import com.hnrzzin.granaxp.ui.theme.GranaXPColors
 import com.hnrzzin.granaxp.ui.theme.components.AppBottomNavigationBar
 import com.hnrzzin.granaxp.ui.theme.components.AppTab
 import com.hnrzzin.granaxp.ui.theme.components.HomeTopBar
 import com.hnrzzin.granaxp.viewmodel.LessonCompletionEvent
+import com.hnrzzin.granaxp.viewmodel.ActivityAnswerResult
+import com.hnrzzin.granaxp.viewmodel.ActivityAnswerState
 import com.hnrzzin.granaxp.viewmodel.LessonContentUiState
 import com.hnrzzin.granaxp.viewmodel.LessonUiState
 import com.hnrzzin.granaxp.viewmodel.LessonViewModel
@@ -102,6 +112,8 @@ fun LearnScreen(
             onComplete = {
                 viewModel.completeLesson(currentLesson)
             },
+            onAnswerSelected = viewModel::selectActivityAnswer,
+            onSubmitAnswer = viewModel::submitActivityAnswer,
         )
     } else {
         LearningTrail(
@@ -427,6 +439,8 @@ private fun LessonContentPage(
     contentUiState: LessonContentUiState,
     onBack: () -> Unit,
     onComplete: () -> Unit,
+    onAnswerSelected: (blockId: String, answerId: String) -> Unit,
+    onSubmitAnswer: (blockId: String) -> Unit,
 ) {
     val lesson = lessonWithProgress.lesson
     val alreadyCompleted = lessonWithProgress.isCompleted
@@ -484,7 +498,21 @@ private fun LessonContentPage(
                             Unit
                         } else {
                             items(contentUiState.blocks, key = { it.id }) { block ->
-                                LessonBlockCard(block)
+                                if (block.type.equals("ACTIVITY", ignoreCase = true)) {
+                                    LessonActivityCard(
+                                        block = block,
+                                        answerState = contentUiState.activityAnswers[block.id]
+                                            ?: ActivityAnswerState(),
+                                        isPersistedCompleted = block.id in
+                                            contentUiState.completedActivityIds,
+                                        onAnswerSelected = { answerId ->
+                                            onAnswerSelected(block.id, answerId)
+                                        },
+                                        onSubmit = { onSubmitAnswer(block.id) },
+                                    )
+                                } else {
+                                    LessonBlockCard(block)
+                                }
                             }
                         }
                     }
@@ -518,19 +546,32 @@ private fun LessonContentPage(
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
-                } else if (!lessonWithProgress.isStarted) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "Preparando a lição...",
-                            color = GranaXPColors.Gray600,
-                        )
+                } else if (!contentLoaded) {
+                    if (contentUiState !is LessonContentUiState.Error) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "Preparando a lição...",
+                                color = GranaXPColors.Gray600,
+                            )
+                        }
                     }
                 } else {
+                    val completionAvailable = (
+                        contentUiState as? LessonContentUiState.Success
+                    )?.takeIf { it.lessonId == lesson.id }?.canComplete == true
+                    if (contentLoaded && !completionAvailable) {
+                        Text(
+                            text = "Conclua todas as atividades para finalizar a lição.",
+                            color = GranaXPColors.Gray600,
+                            fontSize = 13.sp,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
                     Button(
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = contentLoaded,
+                        enabled = contentLoaded && completionAvailable,
                         onClick = onComplete,
                     ) {
                         Icon(
@@ -544,6 +585,178 @@ private fun LessonContentPage(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LessonActivityCard(
+    block: LessonBlock,
+    answerState: ActivityAnswerState,
+    isPersistedCompleted: Boolean,
+    onAnswerSelected: (String) -> Unit,
+    onSubmit: () -> Unit,
+) {
+    val allowsMultipleAnswers = block.correctAnswerIds.size > 1
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = GranaXPColors.Surface),
+        shape = MaterialTheme.shapes.large,
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                text = block.activityType?.name
+                    ?.replace('_', ' ')
+                    ?.lowercase()
+                    ?.replaceFirstChar { it.titlecase() }
+                    ?: "Atividade",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = GranaXPColors.Info,
+            )
+
+            if (isPersistedCompleted) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Atividade concluída",
+                    color = GranaXPColors.Success,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+
+            if (block.title.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = block.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            if (block.content.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = block.content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = GranaXPColors.OnSurface,
+                )
+            }
+
+            if (
+                block.activityType == ActivityType.CHART_ANALYSIS &&
+                !block.chartImageUrl.isNullOrBlank()
+            ) {
+                Spacer(Modifier.height(12.dp))
+                AsyncImage(
+                    model = block.chartImageUrl,
+                    contentDescription = "Gráfico da atividade ${block.title}",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .clip(MaterialTheme.shapes.medium),
+                    contentScale = ContentScale.Fit,
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+            block.orderedAlternatives().forEach { alternative ->
+                val selected = alternative.key in answerState.selectedAnswerIds
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clip(MaterialTheme.shapes.medium)
+                        .background(
+                            if (selected) GranaXPColors.Primary.copy(alpha = 0.08f)
+                            else Color.Transparent,
+                        )
+                        .clickable(enabled = !answerState.isSubmitting) {
+                            onAnswerSelected(alternative.key)
+                        }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (allowsMultipleAnswers) {
+                        Checkbox(
+                            checked = selected,
+                            onCheckedChange = null,
+                        )
+                    } else {
+                        RadioButton(
+                            selected = selected,
+                            onClick = null,
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = alternative.value,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+
+            when (answerState.result) {
+                ActivityAnswerResult.INCORRECT -> {
+                    ActivityFeedback(
+                        message = answerState.message.orEmpty(),
+                        color = GranaXPColors.Error,
+                    )
+                }
+
+                ActivityAnswerResult.CORRECT -> {
+                    ActivityFeedback(
+                        message = "Resposta correta. Atividade concluída.",
+                        color = GranaXPColors.Success,
+                    )
+                }
+
+                ActivityAnswerResult.ERROR -> {
+                    ActivityFeedback(
+                        message = answerState.message.orEmpty(),
+                        color = GranaXPColors.Error,
+                    )
+                }
+
+                ActivityAnswerResult.IDLE -> Unit
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = answerState.selectedAnswerIds.isNotEmpty() &&
+                    !answerState.isSubmitting &&
+                    answerState.result != ActivityAnswerResult.CORRECT,
+                onClick = onSubmit,
+            ) {
+                if (answerState.isSubmitting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(if (answerState.isSubmitting) "Salvando..." else "Responder")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActivityFeedback(message: String, color: Color) {
+    if (message.isBlank()) return
+    Spacer(Modifier.height(10.dp))
+    Surface(
+        color = color.copy(alpha = 0.08f),
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(1.dp, color.copy(alpha = 0.35f)),
+    ) {
+        Text(
+            text = message,
+            modifier = Modifier.padding(12.dp),
+            color = color,
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
 

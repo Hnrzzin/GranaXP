@@ -46,7 +46,7 @@ class LessonViewModel(private val userId: String) : ViewModel() {
             try {
                 val modules = moduleRepository.getModules()
                 val allLessons = repository.getLessons()
-                val progressList = repository.getAllLessonProgress()
+                val progressList = repository.getLessonProgress()
                 val lessonsByModule = modules.associate { module ->
                     module.idModule to repository.getLessonsByModule(module.idModule)
                 }
@@ -66,20 +66,32 @@ class LessonViewModel(private val userId: String) : ViewModel() {
     }
 
     fun openLesson(lesson: LessonWithProgress) {
-        if (!lesson.isStarted) {
-            startLesson(lesson.lesson.id)
-        }
-        loadLessonBlocks(lesson.lesson.id)
+        loadLesson(lesson)
     }
 
-    private fun loadLessonBlocks(lessonId: String) {
+    private fun loadLesson(lessonWithProgress: LessonWithProgress) {
+        val lessonId = lessonWithProgress.lesson.id
         loadLessonBlocksJob?.cancel()
         loadLessonBlocksJob = viewModelScope.launch {
             _contentUiState.value = LessonContentUiState.Loading(lessonId)
             try {
+                val progressDocumentId = repository.startOrTouchLessonProgress(
+                    lessonId = lessonId,
+                    existingProgress = lessonWithProgress.progress,
+                )
                 val blocks = repository.getLessonBlocks(lessonId)
+                validateLessonActivities(blocks)
                 if ((_contentUiState.value as? LessonContentUiState.Loading)?.lessonId == lessonId) {
-                    _contentUiState.value = LessonContentUiState.Success(lessonId, blocks)
+                    _contentUiState.value = LessonContentUiState.Success(
+                        lessonId = lessonId,
+                        blocks = blocks,
+                        progressDocumentId = progressDocumentId,
+                        completedActivityIds = lessonWithProgress.progress
+                            ?.completedActivityIds
+                            .orEmpty()
+                            .toSet(),
+                    )
+                    fetchLessons()
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -100,6 +112,121 @@ class LessonViewModel(private val userId: String) : ViewModel() {
         _contentUiState.value = LessonContentUiState.Idle
     }
 
+    fun selectActivityAnswer(blockId: String, answerId: String) {
+        val content = _contentUiState.value as? LessonContentUiState.Success ?: return
+        val block = content.blocks.find {
+            it.id == blockId && it.type.equals("ACTIVITY", ignoreCase = true)
+        } ?: return
+        val currentAnswer = content.activityAnswers[blockId] ?: ActivityAnswerState()
+        if (currentAnswer.isSubmitting) return
+
+        val updatedAnswer = currentAnswer.copy(
+            selectedAnswerIds = updateSelectedAnswers(
+                block = block,
+                currentSelection = currentAnswer.selectedAnswerIds,
+                answerId = answerId,
+            ),
+            result = ActivityAnswerResult.IDLE,
+            message = null,
+        )
+        _contentUiState.value = content.copy(
+            activityAnswers = content.activityAnswers + (blockId to updatedAnswer),
+        )
+    }
+
+    fun submitActivityAnswer(blockId: String) {
+        val content = _contentUiState.value as? LessonContentUiState.Success ?: return
+        val block = content.blocks.find {
+            it.id == blockId && it.type.equals("ACTIVITY", ignoreCase = true)
+        } ?: return
+        val answer = content.activityAnswers[blockId] ?: return
+        if (answer.selectedAnswerIds.isEmpty() || answer.isSubmitting) return
+
+        if (!activityAnswerIsCorrect(block, answer.selectedAnswerIds)) {
+            _contentUiState.value = content.copy(
+                activityAnswers = content.activityAnswers + (
+                    blockId to answer.copy(
+                        result = ActivityAnswerResult.INCORRECT,
+                        message = block.feedback,
+                    )
+                ),
+            )
+            return
+        }
+
+        if (blockId in content.completedActivityIds) {
+            _contentUiState.value = content.copy(
+                activityAnswers = content.activityAnswers + (
+                    blockId to answer.copy(
+                        result = ActivityAnswerResult.CORRECT,
+                        message = null,
+                    )
+                ),
+            )
+            return
+        }
+
+        _contentUiState.value = content.copy(
+            activityAnswers = content.activityAnswers + (
+                blockId to answer.copy(
+                    isSubmitting = true,
+                    result = ActivityAnswerResult.IDLE,
+                    message = null,
+                )
+            ),
+        )
+
+        viewModelScope.launch {
+            try {
+                repository.addCompletedActivity(
+                    progressDocumentId = content.progressDocumentId,
+                    blockId = blockId,
+                )
+                updateActivityAfterPersistence(
+                    lessonId = content.lessonId,
+                    blockId = blockId,
+                    result = ActivityAnswerResult.CORRECT,
+                )
+                fetchLessons()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateActivityAfterPersistence(
+                    lessonId = content.lessonId,
+                    blockId = blockId,
+                    result = ActivityAnswerResult.ERROR,
+                    message = "Não foi possível salvar a atividade. Tente novamente.",
+                )
+            }
+        }
+    }
+
+    private fun updateActivityAfterPersistence(
+        lessonId: String,
+        blockId: String,
+        result: ActivityAnswerResult,
+        message: String? = null,
+    ) {
+        val current = _contentUiState.value as? LessonContentUiState.Success ?: return
+        if (current.lessonId != lessonId) return
+        val currentAnswer = current.activityAnswers[blockId] ?: ActivityAnswerState()
+
+        _contentUiState.value = current.copy(
+            completedActivityIds = if (result == ActivityAnswerResult.CORRECT) {
+                current.completedActivityIds + blockId
+            } else {
+                current.completedActivityIds
+            },
+            activityAnswers = current.activityAnswers + (
+                blockId to currentAnswer.copy(
+                    result = result,
+                    isSubmitting = false,
+                    message = message,
+                )
+            ),
+        )
+    }
+
     /**
      * Conclui a lição: marca/cria o progresso, concede XP (regra #5) e
      * verifica desbloqueio de conquistas de educação (regra #4).
@@ -111,16 +238,21 @@ class LessonViewModel(private val userId: String) : ViewModel() {
      * risco de XP duplicado numa nova tentativa.
      */
     fun completeLesson(lessonWithProgress: LessonWithProgress) {
+        val content = _contentUiState.value as? LessonContentUiState.Success
+        if (content?.lessonId != lessonWithProgress.lesson.id || !content.canComplete) {
+            _completionEvent.value = LessonCompletionEvent.Error(
+                "Conclua todas as atividades antes de finalizar a lição.",
+            )
+            return
+        }
+
         viewModelScope.launch {
             try {
                 val lesson = lessonWithProgress.lesson
-                val existingProgressId = lessonWithProgress.progress?.id
-                if (existingProgressId != null) {
-                    repository.updateLessonProgress(existingProgressId, isCompleted = true)
-                } else {
-                    val newProgressId = repository.createLessonProgress(lesson.id)
-                    newProgressId?.let { repository.updateLessonProgress(it, isCompleted = true) }
-                }
+                repository.completeLessonProgress(
+                    lessonId = lesson.id,
+                    existingProgress = lessonWithProgress.progress,
+                )
 
                 val leveledUp = XpUtils.grantXp(userRepository, lesson.xpReward)
 
@@ -143,21 +275,9 @@ class LessonViewModel(private val userId: String) : ViewModel() {
         }
     }
 
-    // Inicia (abre) uma lição ainda não acessada, sem marcar como concluída.
-    private fun startLesson(lessonId: String) {
-        viewModelScope.launch {
-            try {
-                repository.createLessonProgress(lessonId)
-                fetchLessons()
-            } catch (e: Exception) {
-                _uiState.value = LessonUiState.Error("Falha ao iniciar lição: ${e.message}")
-            }
-        }
-    }
-
     // Regra #4: conquistas de categoria EDUCACAO baseadas em completedLessonsCount.
     private suspend fun checkEducationAchievements() {
-        val completedCount = repository.getAllLessonProgress().count { it.isCompleted }
+        val completedCount = repository.getLessonProgress().count { it.isCompleted }
         val achievements = achievementRepository.getAchievements()
             .filter { it.category == com.hnrzzin.granaxp.model.CategoriaConquista.EDUCACAO }
             .filter { it.requirementType == RequirementType.LESSON_COUNT }

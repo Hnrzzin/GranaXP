@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -9,6 +10,7 @@ import {
 } from "@firebase/rules-unit-testing";
 import {
   Timestamp,
+  arrayUnion,
   collection,
   deleteDoc,
   doc,
@@ -369,12 +371,34 @@ describe("achievementProgress legado", () => {
 describe("caminhos planejados da Fase 1", () => {
   test("aceita LessonProgress determinístico sem userId", async () => {
     const db = userDb(USER_A);
-    await assertSucceeds(setDoc(doc(db, `users/${USER_A}/lessonProgress/lesson-2`), {
+    const progressRef = doc(db, `users/${USER_A}/lessonProgress/lesson-2`);
+    await assertSucceeds(setDoc(progressRef, {
       lessonId: "lesson-2",
       isCompleted: false,
       completedActivityIds: ["activity-1"],
       lastAccessed: Timestamp.now(),
       completedAt: null,
+    }));
+    await assertSucceeds(updateDoc(progressRef, {
+      lastAccessed: Timestamp.now(),
+    }));
+    await assertSucceeds(updateDoc(progressRef, {
+      isCompleted: true,
+      completedAt: Timestamp.now(),
+    }));
+    await assertSucceeds(updateDoc(progressRef, {
+      completedActivityIds: arrayUnion("activity-2"),
+    }));
+    await assertSucceeds(updateDoc(progressRef, {
+      completedActivityIds: arrayUnion("activity-2"),
+    }));
+    const savedProgress = await assertSucceeds(getDoc(progressRef));
+    assert.deepEqual(
+      savedProgress.data().completedActivityIds,
+      ["activity-1", "activity-2"],
+    );
+    await assertFails(updateDoc(progressRef, {
+      completedActivityIds: [],
     }));
 
     await assertFails(setDoc(doc(db, `users/${USER_A}/lessonProgress/wrong-id`), {

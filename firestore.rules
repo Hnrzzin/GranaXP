@@ -200,6 +200,14 @@ service cloud.firestore {
         );
     }
 
+    function preservesCompletedActivities(before, after) {
+      return !before.keys().hasAny(['completedActivityIds'])
+        || (
+          after.keys().hasAny(['completedActivityIds'])
+          && after.completedActivityIds.hasAll(before.completedActivityIds)
+        );
+    }
+
     function isValidUserAchievementProgress(data, achievementId) {
       return hasRequired(data, [
           'achievementId', 'currentProgress', 'isUnlocked'
@@ -315,6 +323,7 @@ service cloud.firestore {
           && isValidLessonProgress(request.resource.data, uid, progressId);
         allow update: if isOwner(uid)
           && isValidLessonProgress(request.resource.data, uid, progressId)
+          && preservesCompletedActivities(resource.data, request.resource.data)
           && !request.resource.data.diff(resource.data).affectedKeys()
             .hasAny(['userId', 'lessonId']);
         allow delete: if isOwner(uid);

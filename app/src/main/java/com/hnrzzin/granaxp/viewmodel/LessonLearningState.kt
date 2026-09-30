@@ -57,7 +57,19 @@ sealed class LessonContentUiState {
     data class Success(
         val lessonId: String,
         val blocks: List<LessonBlock>,
-    ) : LessonContentUiState()
+        val progressDocumentId: String = lessonId,
+        val completedActivityIds: Set<String> = emptySet(),
+        val activityAnswers: Map<String, ActivityAnswerState> = emptyMap(),
+    ) : LessonContentUiState() {
+        val requiredActivityIds: Set<String>
+            get() = blocks
+                .filter { it.type.equals("ACTIVITY", ignoreCase = true) }
+                .map { it.id }
+                .toSet()
+
+        val canComplete: Boolean
+            get() = completedActivityIds.containsAll(requiredActivityIds)
+    }
 
     data class Error(
         val lessonId: String,

@@ -48,6 +48,10 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.database)
 
+    // Imagens dos blocos CHART_ANALYSIS
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
+
     // Outros
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
     implementation("androidx.credentials:credentials:1.3.0")

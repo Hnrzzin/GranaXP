@@ -112,7 +112,7 @@ class UserViewModel(private val userId: String) : ViewModel() {
                 val budgets = budgetRepository.getBudgets()
                 budgets.forEach { budgetRepository.deleteBudget(it) }
 
-                val lessonProgress = lessonRepository.getAllLessonProgress() // ✅ corrigido
+                val lessonProgress = lessonRepository.getLessonProgressDocuments()
                 lessonProgress.forEach { lessonRepository.deleteLessonProgress(it.id) } // ✅ forEach, não ?.let
 
                 val achievementProgress = achievementRepository.getAchievementProgress(userId)

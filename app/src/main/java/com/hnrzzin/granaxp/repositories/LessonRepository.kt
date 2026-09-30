@@ -1,5 +1,7 @@
 package com.hnrzzin.granaxp.repositories
 
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.LessonBlock
 import com.hnrzzin.granaxp.model.LessonModel
@@ -43,26 +45,58 @@ class LessonRepository(private val userId: String) {
 
 
 
-    // operações relacionadas ao progresso do usuario
-    suspend fun updateLessonProgress(progressId: String, isCompleted: Boolean) {
-        if (progressId.isEmpty()) return
-        val updates = mapOf("isCompleted" to isCompleted)
-        try {
-            progressCollection.document(progressId).update(updates).await()
-        } catch (e: Exception) {
-            println("Falha ao atualizar progresso: $e")
+    // Novos progressos usam lessonId como ID. Registros legados continuam no
+    // documento original até uma migração de dados ser explicitamente autorizada.
+    suspend fun startOrTouchLessonProgress(
+        lessonId: String,
+        existingProgress: LessonProgressModel?,
+    ): String {
+        val now = Timestamp.now()
+        val documentId = progressDocumentId(lessonId, existingProgress)
+        val document = progressCollection.document(documentId)
+
+        if (existingProgress == null) {
+            document.set(newLessonProgressData(lessonId, now)).await()
+        } else {
+            document.update("lastAccessed", now).await()
         }
+
+        return documentId
     }
 
-    suspend fun createLessonProgress(lessonId: String): String? {
-        val progress = LessonProgressModel(userId = userId, lessonId = lessonId)
-        return try {
-            val ref = progressCollection.add(progress).await()
-            ref.id
-        } catch (e: Exception) {
-            println("Falha ao criar progresso: $e")
-            null
+    suspend fun completeLessonProgress(
+        lessonId: String,
+        existingProgress: LessonProgressModel?,
+    ): String {
+        val now = Timestamp.now()
+        val documentId = progressDocumentId(lessonId, existingProgress)
+        val document = progressCollection.document(documentId)
+
+        if (existingProgress == null) {
+            document.set(
+                newLessonProgressData(
+                    lessonId = lessonId,
+                    now = now,
+                    isCompleted = true,
+                ),
+            ).await()
+        } else {
+            document.update(lessonCompletionUpdates(existingProgress, now)).await()
         }
+
+        return documentId
+    }
+
+    suspend fun addCompletedActivity(
+        progressDocumentId: String,
+        blockId: String,
+    ) {
+        require(progressDocumentId.isNotBlank()) { "O progresso da lição não possui ID." }
+        require(blockId.isNotBlank()) { "A atividade não possui ID." }
+
+        progressCollection.document(progressDocumentId)
+            .update("completedActivityIds", FieldValue.arrayUnion(blockId))
+            .await()
     }
 
     suspend fun deleteLessonProgress(progressId: String): Boolean {
@@ -74,14 +108,16 @@ class LessonRepository(private val userId: String) {
             false
         }
     }
-    // Retorna TODO o progresso de lições do usuário (para a trilha completa)
-    suspend fun getAllLessonProgress(): List<LessonProgressModel> {
-        return try {
-            val result = progressCollection.get().await()
-            result.mapNotNull { it.toObject(LessonProgressModel::class.java) }
-        } catch (e: Exception) {
-            println("Falha ao buscar progresso de lições: $e")
-            emptyList()
-        }
+    // Visão lógica para a trilha. Durante uma migração parcial, combina o
+    // documento legado e o determinístico sem perder conclusão ou atividades.
+    suspend fun getLessonProgress(): List<LessonProgressModel> {
+        return consolidateLessonProgressDocuments(getLessonProgressDocuments())
+    }
+
+    // Visão física usada pela exclusão de conta, que precisa remover todos os
+    // documentos, inclusive duplicatas temporárias de uma futura migração.
+    suspend fun getLessonProgressDocuments(): List<LessonProgressModel> {
+        val result = progressCollection.get().await()
+        return result.mapNotNull { it.toObject(LessonProgressModel::class.java) }
     }
 }
