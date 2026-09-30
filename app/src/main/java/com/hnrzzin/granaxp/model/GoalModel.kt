@@ -17,5 +17,6 @@ data class GoalModel(
     val targetAmount: Double = 0.0,
     val currentAmount: Double = 0.0,
     val deadline: GoalDeadline = GoalDeadline.CURTO,
-    val deadlineDate: Timestamp? = null   // ✅ novo — data real, distinta da categoria de prazo
+    val deadlineDate: Timestamp? = null,
+    val completedAt: Timestamp? = null,
 )

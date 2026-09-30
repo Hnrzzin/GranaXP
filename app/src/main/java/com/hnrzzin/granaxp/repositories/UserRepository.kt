@@ -38,23 +38,8 @@ class UserRepository(private val userId: String) {
         }
     }
 
-    suspend fun updateUser(user: UserModel) {
-        collection.document(userId).set(user).await()
-    }
-
-    suspend fun updateXP(newXP: Int) {
-        collection.document(userId).update("xp", newXP).await()
-    }
-
-    suspend fun updateLevel(newLevel: Int) {
-        collection.document(userId).update("level", newLevel).await()
-    }
-
     suspend fun updateName(newName: String) {
         collection.document(userId).update("name", newName).await()
     }
 
-    suspend fun deleteUser() {
-        collection.document(userId).delete().await()
-    }
 }

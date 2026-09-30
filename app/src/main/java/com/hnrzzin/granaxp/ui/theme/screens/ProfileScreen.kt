@@ -54,8 +54,13 @@ fun ProfileScreen(
     var achievementsExpanded by remember { mutableStateOf(true) }
 
     LaunchedEffect(actionState) {
-        if (actionState is UserActionState.Success) {
-            userViewModel.resetActionState()
+        when (actionState) {
+            UserActionState.Success -> userViewModel.resetActionState()
+            UserActionState.AccountDeleted -> {
+                userViewModel.resetActionState()
+                onAccountDeleted()
+            }
+            else -> Unit
         }
     }
 
@@ -144,7 +149,6 @@ fun ProfileScreen(
             onConfirm = {
                 showDeleteConfirmSheet = false
                 userViewModel.deleteAccount()
-                onAccountDeleted()
             },
             onDismiss = { showDeleteConfirmSheet = false }
         )

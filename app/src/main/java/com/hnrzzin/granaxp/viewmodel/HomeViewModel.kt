@@ -88,6 +88,5 @@ class HomeViewModel(private val userId: String) : ViewModel() {
 
     // earnXp() foi removido — era código órfão (nunca chamado por nenhuma tela).
     // A concessão de XP agora vive só onde a regra de negócio realmente acontece:
-    // LessonViewModel.completeLesson() e GoalViewModel.updateGoalProgress()/createGoal(),
-    // ambos usando o utilitário compartilhado XpUtils.grantXp().
+    // XP é concedido exclusivamente pelas Cloud Functions autenticadas.
 }

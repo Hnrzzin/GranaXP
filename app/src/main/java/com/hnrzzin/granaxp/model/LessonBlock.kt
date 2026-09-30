@@ -1,5 +1,7 @@
 package com.hnrzzin.granaxp.model
 
+enum class LessonSelectionMode { SINGLE, MULTIPLE }
+
 data class LessonBlock(
     var id: String = "",
     var type: String = "",
@@ -8,7 +10,7 @@ data class LessonBlock(
     var content: String = "",
     var activityType: ActivityType? = null,
     var alternatives: Map<String, String> = emptyMap(),
-    var correctAnswerIds: List<String> = emptyList(),
+    var selectionMode: LessonSelectionMode? = null,
     var feedback: String = "",
     var chartImageUrl: String? = null,
 )

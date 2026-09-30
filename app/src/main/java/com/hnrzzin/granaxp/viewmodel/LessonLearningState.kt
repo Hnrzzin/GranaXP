@@ -57,7 +57,6 @@ sealed class LessonContentUiState {
     data class Success(
         val lessonId: String,
         val blocks: List<LessonBlock>,
-        val progressDocumentId: String = lessonId,
         val completedActivityIds: Set<String> = emptySet(),
         val activityAnswers: Map<String, ActivityAnswerState> = emptyMap(),
     ) : LessonContentUiState() {

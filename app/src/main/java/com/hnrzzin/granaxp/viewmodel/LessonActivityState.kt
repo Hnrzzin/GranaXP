@@ -1,6 +1,7 @@
 package com.hnrzzin.granaxp.viewmodel
 
 import com.hnrzzin.granaxp.model.LessonBlock
+import com.hnrzzin.granaxp.model.LessonSelectionMode
 
 enum class ActivityAnswerResult {
     IDLE,
@@ -23,20 +24,12 @@ internal fun updateSelectedAnswers(
 ): Set<String> {
     if (answerId !in block.alternatives) return currentSelection
 
-    return if (block.correctAnswerIds.size > 1) {
+    return if (block.selectionMode == LessonSelectionMode.MULTIPLE) {
         if (answerId in currentSelection) currentSelection - answerId
         else currentSelection + answerId
     } else {
         setOf(answerId)
     }
-}
-
-internal fun activityAnswerIsCorrect(
-    block: LessonBlock,
-    selectedAnswerIds: Set<String>,
-): Boolean {
-    val correctAnswerIds = block.correctAnswerIds.toSet()
-    return selectedAnswerIds.isNotEmpty() && selectedAnswerIds == correctAnswerIds
 }
 
 internal fun validateLessonActivities(blocks: List<LessonBlock>) {
@@ -49,17 +42,8 @@ internal fun validateLessonActivities(blocks: List<LessonBlock>) {
             check(block.alternatives.isNotEmpty()) {
                 "A atividade ${block.id} não possui alternativas."
             }
-            check(block.correctAnswerIds.isNotEmpty()) {
-                "A atividade ${block.id} não possui resposta correta."
-            }
-            check(block.correctAnswerIds.toSet().size == block.correctAnswerIds.size) {
-                "A atividade ${block.id} possui respostas corretas duplicadas."
-            }
-            check(block.correctAnswerIds.all { it in block.alternatives }) {
-                "A atividade ${block.id} referencia uma alternativa inexistente."
-            }
-            check(block.feedback.isNotBlank()) {
-                "A atividade ${block.id} não possui feedback."
+            check(block.selectionMode != null) {
+                "A atividade ${block.id} não possui modo de seleção."
             }
         }
 }

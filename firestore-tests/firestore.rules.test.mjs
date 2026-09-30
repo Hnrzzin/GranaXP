@@ -73,13 +73,19 @@ describe("dados privados da V1", () => {
     await assertSucceeds(updateDoc(ref, { name: "Novo nome" }));
   });
 
-  test("preserva a regravação do perfil usada pelo bônus atual de 200 XP de metas", async () => {
+  test("perfil novo exige os valores iniciais oficiais de XP", async () => {
+    const db = userDb(USER_A);
+    await assertFails(setDoc(doc(db, `users/${USER_A}`), validUser({ xp: 1 })));
+    await assertFails(setDoc(doc(db, `users/${USER_A}`), validUser({ level: 2 })));
+    await assertFails(setDoc(doc(db, `users/${USER_A}`), validUser({ nextLevelXp: 999 })));
+  });
+
+  test("bloqueia regravação direta de XP, nível e curva pelo cliente", async () => {
     const db = userDb(USER_A);
     const ref = doc(db, `users/${USER_A}`);
     await assertSucceeds(setDoc(ref, validUser()));
 
-    // XpUtils: 0 + 200 cruza 100 XP, resultando em nível 2, 100 XP e próximo nível 120.
-    await assertSucceeds(
+    await assertFails(
       setDoc(ref, validUser({ level: 2, xp: 100, nextLevelXp: 120 })),
     );
   });
@@ -121,16 +127,6 @@ describe("dados privados da V1", () => {
       },
     },
     {
-      name: "goals",
-      data: {
-        title: "Reserva",
-        targetAmount: 5000,
-        currentAmount: 500,
-        deadline: "MEDIO",
-        deadlineDate: Timestamp.now(),
-      },
-    },
-    {
       name: "budgets",
       data: {
         category: "Moradia",
@@ -152,15 +148,6 @@ describe("dados privados da V1", () => {
         date: Timestamp.now(),
         time: "09:00",
         isCompleted: false,
-      },
-    },
-    {
-      name: "lessonProgress",
-      data: {
-        userId: USER_A,
-        lessonId: "lesson-1",
-        isCompleted: false,
-        lastAccessed: Timestamp.now(),
       },
     },
   ];
@@ -188,6 +175,75 @@ describe("dados privados da V1", () => {
       await assertFails(setDoc(ref, scenario.data));
     });
   }
+
+  test("metas são legíveis e removíveis pelo dono, mas mutações passam pelo backend", async () => {
+    await seed(`users/${USER_A}/goals/goal-1`, {
+      title: "Reserva",
+      targetAmount: 5000,
+      currentAmount: 500,
+      deadline: "MEDIO",
+      deadlineDate: Timestamp.now(),
+      completedAt: null,
+    });
+    const dbA = userDb(USER_A);
+    const ref = doc(dbA, `users/${USER_A}/goals/goal-1`);
+
+    await assertSucceeds(getDoc(ref));
+    await assertFails(setDoc(doc(dbA, `users/${USER_A}/goals/new-goal`), {
+      title: "Nova", targetAmount: 100, currentAmount: 0, deadline: "CURTO",
+    }));
+    await assertFails(updateDoc(ref, { currentAmount: 5000 }));
+    await seed(`users/${USER_B}/goals/goal-b`, {
+      title: "Outra", targetAmount: 100, currentAmount: 0, deadline: "CURTO",
+    });
+    await assertFails(getDoc(doc(dbA, `users/${USER_B}/goals/goal-b`)));
+    await assertFails(setDoc(doc(dbA, `users/${USER_B}/goals/goal-new`), {
+      title: "Invasão", targetAmount: 100, currentAmount: 0, deadline: "CURTO",
+    }));
+    await assertFails(updateDoc(doc(dbA, `users/${USER_B}/goals/goal-b`), {currentAmount: 100}));
+    await assertFails(deleteDoc(doc(dbA, `users/${USER_B}/goals/goal-b`)));
+    await assertSucceeds(deleteDoc(ref));
+  });
+
+  test("registro de idempotência das metas é exclusivo do backend", async () => {
+    await seed(`users/${USER_A}/goalCreationRequests/request-123`, {
+      goalId: "goal-1", fingerprint: "private",
+    });
+    const dbA = userDb(USER_A);
+    const own = doc(dbA, `users/${USER_A}/goalCreationRequests/request-123`);
+    const other = doc(dbA, `users/${USER_B}/goalCreationRequests/request-123`);
+    await assertFails(getDoc(own));
+    await assertFails(setDoc(doc(dbA, `users/${USER_A}/goalCreationRequests/new-request`), {
+      goalId: "forged", fingerprint: "private",
+    }));
+    await assertFails(setDoc(own, {goalId: "forged", fingerprint: "private"}));
+    await assertFails(deleteDoc(own));
+    await assertFails(getDoc(other));
+    await assertFails(setDoc(other, {goalId: "forged", fingerprint: "private"}));
+  });
+
+  test("isola leitura e todas as escritas de lessonProgress entre usuários", async () => {
+    await seed(`users/${USER_B}/lessonProgress/lesson-b`, {
+      lessonId: "lesson-b", isCompleted: false, completedActivityIds: [],
+      lastAccessed: Timestamp.now(), completedAt: null,
+    });
+    const dbA = userDb(USER_A);
+    const other = doc(dbA, `users/${USER_B}/lessonProgress/lesson-b`);
+    await assertFails(getDoc(other));
+    await assertFails(getDocs(collection(dbA, `users/${USER_B}/lessonProgress`)));
+    await assertFails(setDoc(doc(dbA, `users/${USER_B}/lessonProgress/new`), {
+      lessonId: "new", isCompleted: false, completedActivityIds: [],
+      lastAccessed: Timestamp.now(), completedAt: null,
+    }));
+    await assertFails(updateDoc(other, {lastAccessed: Timestamp.now()}));
+    await assertFails(deleteDoc(other));
+    await assertSucceeds(getDoc(doc(userDb(USER_B), `users/${USER_B}/lessonProgress/lesson-b`)));
+  });
+
+  test("cliente não exclui o perfil diretamente", async () => {
+    await seed(`users/${USER_A}`, validUser());
+    await assertFails(deleteDoc(doc(userDb(USER_A), `users/${USER_A}`)));
+  });
 
   test("mantém compatibilidade com campos booleanos legados da V1", async () => {
     await seed(`users/${USER_A}/transactions/transaction-1`, {
@@ -228,9 +284,10 @@ describe("dados privados da V1", () => {
       doc(dbA, `users/${USER_A}/budgets/budget-1`),
       { isPaid: true },
     ));
-    await assertSucceeds(updateDoc(
+    await assertSucceeds(getDoc(doc(dbA, `users/${USER_A}/lessonProgress/progress-1`)));
+    await assertFails(updateDoc(
       doc(dbA, `users/${USER_A}/lessonProgress/progress-1`),
-      { isCompleted: true },
+      { lastAccessed: Timestamp.now() },
     ));
   });
 });
@@ -282,7 +339,6 @@ describe("catálogos globais", () => {
 
     for (const path of [
       "lessons/lesson-1",
-      "lessons/lesson-1/blocks/block-1",
       "modules/module-1",
       "achievements/achievement-1",
       "dailyMissions/mission-1",
@@ -290,6 +346,8 @@ describe("catálogos globais", () => {
       await assertSucceeds(getDoc(doc(db, path)));
       await assertFails(setDoc(doc(db, path), { ataque: true }));
     }
+    await assertFails(getDoc(doc(db, "lessons/lesson-1/blocks/block-1")));
+    await assertFails(getDocs(collection(db, "lessons/lesson-1/blocks")));
     await assertSucceeds(getDocs(query(collection(db, "lessons"))));
   });
 
@@ -369,37 +427,35 @@ describe("achievementProgress legado", () => {
 });
 
 describe("caminhos planejados da Fase 1", () => {
-  test("aceita LessonProgress determinístico sem userId", async () => {
+  test("lê LessonProgress determinístico mas reserva todas as escritas ao backend", async () => {
     const db = userDb(USER_A);
     const progressRef = doc(db, `users/${USER_A}/lessonProgress/lesson-2`);
-    await assertSucceeds(setDoc(progressRef, {
+    const progress = {
       lessonId: "lesson-2",
       isCompleted: false,
-      completedActivityIds: ["activity-1"],
+      completedActivityIds: [],
       lastAccessed: Timestamp.now(),
       completedAt: null,
-    }));
-    await assertSucceeds(updateDoc(progressRef, {
+    };
+    await assertFails(setDoc(progressRef, progress));
+    await seed(`users/${USER_A}/lessonProgress/lesson-2`, progress);
+    await assertSucceeds(getDoc(progressRef));
+    await assertFails(updateDoc(progressRef, {
       lastAccessed: Timestamp.now(),
     }));
-    await assertSucceeds(updateDoc(progressRef, {
+    await assertFails(updateDoc(progressRef, {
       isCompleted: true,
       completedAt: Timestamp.now(),
     }));
-    await assertSucceeds(updateDoc(progressRef, {
-      completedActivityIds: arrayUnion("activity-2"),
-    }));
-    await assertSucceeds(updateDoc(progressRef, {
+    await assertFails(updateDoc(progressRef, {
       completedActivityIds: arrayUnion("activity-2"),
     }));
     const savedProgress = await assertSucceeds(getDoc(progressRef));
-    assert.deepEqual(
-      savedProgress.data().completedActivityIds,
-      ["activity-1", "activity-2"],
-    );
+    assert.deepEqual(savedProgress.data().completedActivityIds, []);
     await assertFails(updateDoc(progressRef, {
       completedActivityIds: [],
     }));
+    await assertFails(deleteDoc(progressRef));
 
     await assertFails(setDoc(doc(db, `users/${USER_A}/lessonProgress/wrong-id`), {
       lessonId: "lesson-2",
@@ -407,6 +463,17 @@ describe("caminhos planejados da Fase 1", () => {
       completedActivityIds: [],
       lastAccessed: Timestamp.now(),
       completedAt: null,
+    }));
+    await assertFails(setDoc(doc(db, `users/${USER_A}/lessonProgress/lesson-complete`), {
+      lessonId: "lesson-complete",
+      isCompleted: true,
+      completedActivityIds: [],
+      lastAccessed: Timestamp.now(),
+      completedAt: Timestamp.now(),
+    }));
+    await assertFails(setDoc(doc(db, `users/${USER_A}/lessonProgress/lesson-forged`), {
+      lessonId: "lesson-forged", isCompleted: false, completedActivityIds: ["activity-1"],
+      lastAccessed: Timestamp.now(), completedAt: null,
     }));
   });
 
@@ -513,12 +580,12 @@ describe("validação e negação por padrão", () => {
     await assertFails(getDoc(doc(db, "admin/config")));
   });
 
-  test("documenta a limitação temporária: o dono ainda consegue manipular XP próprio", async () => {
+  test("impede o dono de manipular XP próprio", async () => {
     const db = userDb(USER_A);
     const ref = doc(db, `users/${USER_A}`);
     await assertSucceeds(setDoc(ref, validUser()));
 
-    await assertSucceeds(updateDoc(ref, {
+    await assertFails(updateDoc(ref, {
       xp: 999999,
       level: 999,
       nextLevelXp: 999999,

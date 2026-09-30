@@ -46,7 +46,7 @@ class LearningContentModelsTest {
             content = "Quanto deve ser reservado?",
             activityType = ActivityType.MULTIPLE_CHOICE,
             alternatives = mapOf("b" to "R$ 600", "a" to "R$ 300"),
-            correctAnswerIds = listOf("b"),
+            selectionMode = LessonSelectionMode.SINGLE,
             feedback = "20% corresponde a R$ 600.",
         )
 

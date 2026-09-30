@@ -3,55 +3,11 @@ package com.hnrzzin.granaxp.repositories
 import com.google.firebase.Timestamp
 import com.hnrzzin.granaxp.model.LessonProgressModel
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @Suppress("DEPRECATION")
 class LessonProgressPersistenceTest {
-
-    @Test
-    fun newProgressUsesLessonIdSchemaWithoutLegacyUserId() {
-        val now = Timestamp(1_800_000_000, 0)
-
-        val data = newLessonProgressData(
-            lessonId = "lesson-1",
-            now = now,
-        )
-
-        assertEquals("lesson-1", data["lessonId"])
-        assertEquals(false, data["isCompleted"])
-        assertEquals(emptyList<String>(), data["completedActivityIds"])
-        assertEquals(now, data["lastAccessed"])
-        assertTrue(data.containsKey("completedAt"))
-        assertNull(data["completedAt"])
-        assertFalse(data.containsKey("userId"))
-    }
-
-    @Test
-    fun completionSetsTimestampOnlyWhenItDoesNotExist() {
-        val firstCompletion = Timestamp(1_800_000_100, 0)
-        val originalCompletion = Timestamp(1_700_000_000, 0)
-
-        assertEquals(
-            mapOf(
-                "isCompleted" to true,
-                "completedAt" to firstCompletion,
-            ),
-            lessonCompletionUpdates(
-                progress = LessonProgressModel(completedAt = null),
-                now = firstCompletion,
-            ),
-        )
-        assertEquals(
-            mapOf("isCompleted" to true),
-            lessonCompletionUpdates(
-                progress = LessonProgressModel(completedAt = originalCompletion),
-                now = firstCompletion,
-            ),
-        )
-    }
 
     @Test
     fun mixedLegacyAndDeterministicDocumentsBecomeOneSafeLogicalProgress() {
@@ -86,15 +42,4 @@ class LessonProgressPersistenceTest {
         assertEquals(legacyCompletion, consolidated.completedAt)
     }
 
-    @Test
-    fun legacyDocumentRemainsWritableUntilMigrationIsAuthorized() {
-        val legacy = LessonProgressModel(
-            id = "legacy-auto-id",
-            userId = "user-1",
-            lessonId = "lesson-1",
-        )
-
-        assertEquals("legacy-auto-id", progressDocumentId("lesson-1", legacy))
-        assertEquals("lesson-2", progressDocumentId("lesson-2", null))
-    }
 }

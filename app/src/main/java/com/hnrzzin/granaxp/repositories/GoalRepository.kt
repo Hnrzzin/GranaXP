@@ -2,67 +2,74 @@ package com.hnrzzin.granaxp.repositories
 
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.functions.FirebaseFunctions
 import com.hnrzzin.granaxp.model.GoalDeadline
 import com.hnrzzin.granaxp.model.GoalModel
 import kotlinx.coroutines.tasks.await
 
 class GoalRepository(private val userId: String) {
-    private val db = FirebaseFirestore.getInstance()
-    private val collection = db.collection("users").document(userId).collection("goals")
+    private val collection = FirebaseFirestore.getInstance()
+        .collection("users").document(userId).collection("goals")
+    private val functions: FirebaseFunctions = FirebaseFunctionsProvider.instance
 
-    suspend fun getGoals(): List<GoalModel> {
-        return try {
-            val result = collection.get().await()
-            result.mapNotNull { it.toObject(GoalModel::class.java) }
-        } catch (e: Exception) {
-            println("Falha ao buscar metas: $e")
-            emptyList()
-        }
-    }
+    suspend fun getGoals(): List<GoalModel> = collection.get().await()
+        .mapNotNull { it.toObject(GoalModel::class.java) }
 
     suspend fun createGoal(
+        requestId: String,
         title: String,
         targetAmount: Double,
         currentAmount: Double,
         deadline: GoalDeadline,
-        deadlineDate: Timestamp?
-    ) {
-        val goal = GoalModel(
-            title = title,
-            targetAmount = targetAmount,
-            currentAmount = currentAmount,
-            deadline = deadline,
-            deadlineDate = deadlineDate
-        )
-        try {
-            collection.add(goal).await()
-        } catch (e: Exception) {
-            println("Falha ao criar meta: $e")
-        }
+        deadlineDate: Timestamp?,
+    ): GoalCreationResult {
+        val result = functions.getHttpsCallable("createGoal").call(
+            mapOf(
+                "requestId" to requestId,
+                "title" to title,
+                "targetAmount" to targetAmount,
+                "currentAmount" to currentAmount,
+                "deadline" to deadline.name,
+                "deadlineDate" to deadlineDate.toCallableTimestamp(),
+            ),
+        ).await()
+        return parseGoalCreationResult(result.data)
     }
 
-    suspend fun updateGoal(goal: GoalModel) {
-        if (goal.id.isEmpty()) return
-        val updates = mapOf(
-            "title" to goal.title,
-            "targetAmount" to goal.targetAmount,
-            "currentAmount" to goal.currentAmount,
-            "deadline" to goal.deadline.name,
-            "deadlineDate" to goal.deadlineDate
-        )
-        try {
-            collection.document(goal.id).update(updates).await()
-        } catch (e: Exception) {
-            println("Falha ao atualizar meta: $e")
-        }
+    suspend fun updateGoalProgress(goalId: String, amountToAdd: Double): XpMutationResult {
+        val result = functions.getHttpsCallable("updateGoalProgress").call(
+            mapOf("goalId" to goalId, "amountToAdd" to amountToAdd),
+        ).await()
+        return parseXpMutationResult(result.data)
+    }
+
+    suspend fun updateGoalDetails(
+        goalId: String,
+        title: String,
+        targetAmount: Double,
+        deadline: GoalDeadline,
+        deadlineDate: Timestamp?,
+    ): XpMutationResult {
+        val result = functions.getHttpsCallable("updateGoalDetails").call(
+            mapOf(
+                "goalId" to goalId,
+                "title" to title,
+                "targetAmount" to targetAmount,
+                "deadline" to deadline.name,
+                "deadlineDate" to deadlineDate.toCallableTimestamp(),
+            ),
+        ).await()
+        return parseXpMutationResult(result.data)
     }
 
     suspend fun deleteGoal(goal: GoalModel) {
-        if (goal.id.isEmpty()) return
-        try {
-            collection.document(goal.id).delete().await()
-        } catch (e: Exception) {
-            println("Falha ao deletar meta: $e")
-        }
+        if (goal.id.isNotEmpty()) collection.document(goal.id).delete().await()
     }
+}
+
+internal fun Timestamp?.toCallableTimestamp(): Map<String, Double>? = this?.let { timestamp ->
+    mapOf(
+        "seconds" to timestamp.seconds.toDouble(),
+        "nanoseconds" to timestamp.nanoseconds.toDouble(),
+    )
 }

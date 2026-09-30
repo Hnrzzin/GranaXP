@@ -2,6 +2,7 @@ package com.hnrzzin.granaxp.viewmodel
 
 import com.hnrzzin.granaxp.model.ActivityType
 import com.hnrzzin.granaxp.model.LessonBlock
+import com.hnrzzin.granaxp.model.LessonSelectionMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -10,8 +11,8 @@ import org.junit.Test
 class LessonActivityStateTest {
 
     @Test
-    fun activityWithOneCorrectAnswerUsesSingleSelection() {
-        val block = activity(correctAnswerIds = listOf("b"))
+    fun activityWithSingleSelectionModeUsesSingleSelection() {
+        val block = activity(selectionMode = LessonSelectionMode.SINGLE)
         val first = updateSelectedAnswers(block, emptySet(), "a")
         val second = updateSelectedAnswers(block, first, "b")
 
@@ -20,8 +21,8 @@ class LessonActivityStateTest {
     }
 
     @Test
-    fun activityWithMultipleCorrectAnswersTogglesMultipleSelection() {
-        val block = activity(correctAnswerIds = listOf("a", "c"))
+    fun activityWithMultipleSelectionModeTogglesMultipleSelection() {
+        val block = activity(selectionMode = LessonSelectionMode.MULTIPLE)
 
         val selectedA = updateSelectedAnswers(block, emptySet(), "a")
         val selectedAC = updateSelectedAnswers(block, selectedA, "c")
@@ -33,20 +34,9 @@ class LessonActivityStateTest {
     }
 
     @Test
-    fun answerMustMatchTheExactCorrectSet() {
-        val block = activity(correctAnswerIds = listOf("a", "c"))
-
-        assertTrue(activityAnswerIsCorrect(block, setOf("a", "c")))
-        assertFalse(activityAnswerIsCorrect(block, setOf("a")))
-        assertFalse(activityAnswerIsCorrect(block, setOf("a", "b", "c")))
-        assertFalse(activityAnswerIsCorrect(block, emptySet()))
-    }
-
-    @Test
     fun onlyActivityBlocksAreRequiredForLessonCompletion() {
         val state = LessonContentUiState.Success(
             lessonId = "lesson-1",
-            progressDocumentId = "lesson-1",
             blocks = listOf(
                 LessonBlock(id = "text-1", type = "TEXT"),
                 activity(id = "activity-1"),
@@ -67,7 +57,6 @@ class LessonActivityStateTest {
     fun lessonWithoutActivitiesCanBeCompleted() {
         val state = LessonContentUiState.Success(
             lessonId = "lesson-1",
-            progressDocumentId = "lesson-1",
             blocks = listOf(LessonBlock(id = "summary", type = "SUMMARY")),
         )
 
@@ -84,9 +73,9 @@ class LessonActivityStateTest {
     }
 
     @Test(expected = IllegalStateException::class)
-    fun activityWithUnknownCorrectAnswerIsRejected() {
+    fun activityWithoutSelectionModeIsRejected() {
         validateLessonActivities(
-            listOf(activity(correctAnswerIds = listOf("missing"))),
+            listOf(activity().copy(selectionMode = null)),
         )
     }
 
@@ -97,16 +86,9 @@ class LessonActivityStateTest {
         )
     }
 
-    @Test(expected = IllegalStateException::class)
-    fun activityWithoutFeedbackIsRejected() {
-        validateLessonActivities(
-            listOf(activity().copy(feedback = "")),
-        )
-    }
-
     private fun activity(
         id: String = "activity-1",
-        correctAnswerIds: List<String> = listOf("a"),
+        selectionMode: LessonSelectionMode = LessonSelectionMode.SINGLE,
     ) = LessonBlock(
         id = id,
         type = "ACTIVITY",
@@ -116,7 +98,7 @@ class LessonActivityStateTest {
             "b" to "Alternativa B",
             "c" to "Alternativa C",
         ),
-        correctAnswerIds = correctAnswerIds,
+        selectionMode = selectionMode,
         feedback = "Revise o conteúdo e tente novamente.",
     )
 }

@@ -8,8 +8,6 @@ import com.hnrzzin.granaxp.model.GoalModel
 import com.hnrzzin.granaxp.model.RequirementType
 import com.hnrzzin.granaxp.repositories.AchievementRepository
 import com.hnrzzin.granaxp.repositories.GoalRepository
-import com.hnrzzin.granaxp.repositories.UserRepository
-import com.hnrzzin.granaxp.utils.XpUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,11 +38,7 @@ sealed class GoalCompletionEvent {
 
 class GoalViewModel(private val userId: String) : ViewModel() {
     private val repository = GoalRepository(userId)
-    private val userRepository = UserRepository(userId)
     private val achievementRepository = AchievementRepository()
-
-    // XP concedido na primeira vez que uma meta atinge 100% do valor-alvo.
-    private val goalCompletionXP  = 200
 
     private val _uiState = MutableStateFlow<GoalUiState>(GoalUiState.Loading)
     val uiState: StateFlow<GoalUiState> = _uiState.asStateFlow()
@@ -72,6 +66,7 @@ class GoalViewModel(private val userId: String) : ViewModel() {
     }
 
     fun createGoal(
+        requestId: String,
         title: String,
         targetAmount: Double,
         currentAmount: Double,
@@ -108,7 +103,14 @@ class GoalViewModel(private val userId: String) : ViewModel() {
             }
 
             try {
-                repository.createGoal(title, targetAmount, currentAmount, deadline, deadlineTimestamp)
+                val result = repository.createGoal(
+                    requestId,
+                    title,
+                    targetAmount,
+                    currentAmount,
+                    deadline,
+                    deadlineTimestamp,
+                )
                 fetchGoals()
                 _actionState.value = GoalActionState.Success
 
@@ -118,9 +120,11 @@ class GoalViewModel(private val userId: String) : ViewModel() {
                     println("Falha ao checar conquistas de meta: $e")
                 }
 
-                if (targetAmount > 0.0 && currentAmount >= targetAmount) {
-                    val leveledUp = XpUtils.grantXp(userRepository, goalCompletionXP)
-                    _completionEvent.value = GoalCompletionEvent.GoalCompleted(goalCompletionXP, leveledUp)
+                if (result.xpEarned > 0) {
+                    _completionEvent.value = GoalCompletionEvent.GoalCompleted(
+                        result.xpEarned,
+                        result.leveledUp,
+                    )
                 }
             } catch (e: Exception) {
                 _actionState.value = GoalActionState.Error("Falha ao criar meta: ${e.message}")
@@ -146,13 +150,8 @@ class GoalViewModel(private val userId: String) : ViewModel() {
     }
 
     /**
-     * Regra de negócio: concede XP na primeira vez que a meta cruza de
-     * "não concluída" para "concluída" (currentAmount >= targetAmount).
-     *
-     * Não precisa de uma flag persistida tipo `isCompleted` porque
-     * `currentAmount` só cresce por este método (nunca diminui) — então a
-     * transição "antes < alvo, depois >= alvo" só pode acontecer uma vez na
-     * vida da meta.
+     * O backend soma o progresso e concede o bônus uma única vez, usando
+     * completedAt como marcador persistente e operação transacional.
      */
     fun updateGoalProgress(goal: GoalModel, amountToAdd: Double, alreadyDeclared: Boolean) {
         viewModelScope.launch {
@@ -163,18 +162,15 @@ class GoalViewModel(private val userId: String) : ViewModel() {
                     return@launch
                 }
 
-                val wasCompletedBefore = goal.targetAmount > 0.0 && goal.currentAmount >= goal.targetAmount
-                val newCurrentAmount = goal.currentAmount + amountToAdd
-                val updatedGoal = goal.copy(currentAmount = newCurrentAmount)
-
-                repository.updateGoal(updatedGoal)
+                val result = repository.updateGoalProgress(goal.id, amountToAdd)
                 fetchGoals()
                 _actionState.value = GoalActionState.Success
 
-                val isCompletedNow = goal.targetAmount > 0.0 && newCurrentAmount >= goal.targetAmount
-                if (!wasCompletedBefore && isCompletedNow) {
-                    val leveledUp = XpUtils.grantXp(userRepository, goalCompletionXP )
-                    _completionEvent.value = GoalCompletionEvent.GoalCompleted(goalCompletionXP , leveledUp)
+                if (result.xpEarned > 0) {
+                    _completionEvent.value = GoalCompletionEvent.GoalCompleted(
+                        result.xpEarned,
+                        result.leveledUp,
+                    )
                 }
             } catch (e: Exception) {
                 _actionState.value = GoalActionState.Error("Falha ao atualizar meta: ${e.message}")
@@ -216,14 +212,13 @@ class GoalViewModel(private val userId: String) : ViewModel() {
         viewModelScope.launch {
             _actionState.value = GoalActionState.Loading
             try {
-                val updatedGoal = goal.copy(
+                repository.updateGoalDetails(
+                    goalId = goal.id,
                     title = newTitle,
                     targetAmount = newTargetAmount,
                     deadline = newDeadline,
-                    deadlineDate = newDeadlineDate
-                    // currentAmount NÃO entra aqui — preservado do goal original via copy()
+                    deadlineDate = newDeadlineDate,
                 )
-                repository.updateGoal(updatedGoal)
                 fetchGoals()
                 _actionState.value = GoalActionState.Success
             } catch (e: Exception) {

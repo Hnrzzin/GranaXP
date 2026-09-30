@@ -1,34 +1,6 @@
 package com.hnrzzin.granaxp.repositories
 
-import com.google.firebase.Timestamp
 import com.hnrzzin.granaxp.model.LessonProgressModel
-
-internal fun newLessonProgressData(
-    lessonId: String,
-    now: Timestamp,
-    isCompleted: Boolean = false,
-): Map<String, Any?> = mapOf(
-    "lessonId" to lessonId,
-    "isCompleted" to isCompleted,
-    "completedActivityIds" to emptyList<String>(),
-    "lastAccessed" to now,
-    "completedAt" to now.takeIf { isCompleted },
-)
-
-internal fun lessonCompletionUpdates(
-    progress: LessonProgressModel?,
-    now: Timestamp,
-): Map<String, Any> = buildMap {
-    put("isCompleted", true)
-    if (progress?.completedAt == null) {
-        put("completedAt", now)
-    }
-}
-
-internal fun progressDocumentId(
-    lessonId: String,
-    progress: LessonProgressModel?,
-): String = progress?.id?.takeIf { it.isNotBlank() } ?: lessonId
 
 @Suppress("DEPRECATION")
 internal fun consolidateLessonProgressDocuments(

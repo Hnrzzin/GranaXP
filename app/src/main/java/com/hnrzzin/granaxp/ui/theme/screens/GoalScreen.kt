@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +34,7 @@ import com.hnrzzin.granaxp.viewmodel.GoalUiState
 import com.hnrzzin.granaxp.viewmodel.GoalViewModel
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.UUID
 
 // ==========================================
 // 1. TELA PRINCIPAL DE VISUALIZAÇÃO DE METAS
@@ -173,6 +175,9 @@ fun AddGoalSheet(
     var currentAmount by remember { mutableStateOf("") }
     var deadlineDateRaw by remember { mutableStateOf("") }
     var alreadyDeclared by remember { mutableStateOf(false) }
+    val requestId = rememberSaveable(
+        title, targetAmount, currentAmount, deadlineType, deadlineDateRaw,
+    ) { UUID.randomUUID().toString() }
 
     com.hnrzzin.granaxp.ui.theme.components.AppModalBottomSheet(onDismiss = onDismiss) {
         com.hnrzzin.granaxp.ui.theme.components.AppModalHeader(title = "Nova Meta Financeira", onClose = onDismiss)
@@ -295,6 +300,7 @@ fun AddGoalSheet(
         Button(
             onClick = {
                 viewModel.createGoal(
+                    requestId = requestId,
                     title = title,
                     targetAmount = com.hnrzzin.granaxp.utils.rawDigitsToAmount(targetAmount),
                     currentAmount = com.hnrzzin.granaxp.utils.rawDigitsToAmount(currentAmount),

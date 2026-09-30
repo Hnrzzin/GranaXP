@@ -58,6 +58,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.hnrzzin.granaxp.model.ActivityType
 import com.hnrzzin.granaxp.model.LessonBlock
+import com.hnrzzin.granaxp.model.LessonSelectionMode
 import com.hnrzzin.granaxp.model.orderedAlternatives
 import com.hnrzzin.granaxp.ui.theme.GranaXPColors
 import com.hnrzzin.granaxp.ui.theme.components.AppBottomNavigationBar
@@ -596,7 +597,7 @@ private fun LessonActivityCard(
     onAnswerSelected: (String) -> Unit,
     onSubmit: () -> Unit,
 ) {
-    val allowsMultipleAnswers = block.correctAnswerIds.size > 1
+    val allowsMultipleAnswers = block.selectionMode == LessonSelectionMode.MULTIPLE
 
     Card(
         modifier = Modifier.fillMaxWidth(),

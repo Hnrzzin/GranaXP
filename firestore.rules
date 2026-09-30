@@ -5,8 +5,8 @@ service cloud.firestore {
     // ==============================================================
     // Assumptions and supported data models
     // ==============================================================
-    // Global, client-readable catalogs (client writes denied):
-    // - lessons/{lessonId} and lessons/{lessonId}/blocks/{blockId}
+    // Global catalogs (client writes denied):
+    // - lessons/{lessonId}; nested blocks are backend-only because they contain the answer key
     // - modules/{moduleId}
     // - achievements/{achievementId}
     // - dailyMissions/{missionId}
@@ -136,14 +136,16 @@ service cloud.firestore {
           'title', 'targetAmount', 'currentAmount', 'deadline'
         ])
         && hasOnly(data, [
-          'title', 'targetAmount', 'currentAmount', 'deadline', 'deadlineDate'
+          'title', 'targetAmount', 'currentAmount', 'deadline', 'deadlineDate',
+          'completedAt'
         ])
         && validString(data, 'title', 200)
         && validMoney(data.targetAmount)
         && validMoney(data.currentAmount)
         && data.deadline is string
         && data.deadline in ['CURTO', 'MEDIO', 'LONGO']
-        && validOptionalTimestamp(data, 'deadlineDate');
+        && validOptionalTimestamp(data, 'deadlineDate')
+        && validOptionalTimestamp(data, 'completedAt');
     }
 
     function isValidBudget(data) {
@@ -178,34 +180,6 @@ service cloud.firestore {
         && data.date is timestamp
         && validString(data, 'time', 20)
         && data.isCompleted is bool;
-    }
-
-    function isValidLessonProgress(data, uid, progressId) {
-      return hasRequired(data, ['lessonId', 'isCompleted', 'lastAccessed'])
-        && hasOnly(data, [
-          'userId', 'lessonId', 'isCompleted', 'completed',
-          'completedActivityIds', 'lastAccessed', 'completedAt'
-        ])
-        && validNonEmptyString(data, 'lessonId', 200)
-        && data.isCompleted is bool
-        && validOptionalBool(data, 'completed')
-        && validOptionalList(data, 'completedActivityIds', 100)
-        && data.lastAccessed is timestamp
-        && validOptionalTimestamp(data, 'completedAt')
-        && (
-          (data.keys().hasAny(['userId'])
-            && data.userId is string
-            && data.userId == uid)
-          || (!data.keys().hasAny(['userId']) && data.lessonId == progressId)
-        );
-    }
-
-    function preservesCompletedActivities(before, after) {
-      return !before.keys().hasAny(['completedActivityIds'])
-        || (
-          after.keys().hasAny(['completedActivityIds'])
-          && after.completedActivityIds.hasAll(before.completedActivityIds)
-        );
     }
 
     function isValidUserAchievementProgress(data, achievementId) {
@@ -251,7 +225,9 @@ service cloud.firestore {
       allow write: if false;
 
       match /blocks/{blockId} {
-        allow read: if isAuthenticated();
+        // Blocos incluem correctAnswerIds; o cliente recebe apenas a projeção
+        // sem gabarito pela callable openLesson.
+        allow read: if false;
         allow write: if false;
       }
     }
@@ -279,11 +255,16 @@ service cloud.firestore {
       allow create: if isOwner(uid)
         && isValidUser(request.resource.data)
         && request.auth.token.email is string
-        && request.resource.data.email == request.auth.token.email;
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.level == 1
+        && request.resource.data.xp == 0
+        && request.resource.data.nextLevelXp == 100;
       allow update: if isOwner(uid)
         && isValidUser(request.resource.data)
-        && request.resource.data.email == resource.data.email;
-      allow delete: if isOwner(uid);
+        && request.resource.data.email == resource.data.email
+        && !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['xp', 'level', 'nextLevelXp']);
+      allow delete: if false;
 
       match /transactions/{transactionId} {
         allow read: if isOwner(uid);
@@ -296,9 +277,12 @@ service cloud.firestore {
 
       match /goals/{goalId} {
         allow read: if isOwner(uid);
-        allow create: if isOwner(uid) && isValidGoal(request.resource.data);
-        allow update: if isOwner(uid) && isValidGoal(request.resource.data);
+        allow create, update: if false;
         allow delete: if isOwner(uid);
+      }
+
+      match /goalCreationRequests/{requestId} {
+        allow read, write: if false;
       }
 
       match /budgets/{budgetId} {
@@ -319,14 +303,7 @@ service cloud.firestore {
 
       match /lessonProgress/{progressId} {
         allow read: if isOwner(uid);
-        allow create: if isOwner(uid)
-          && isValidLessonProgress(request.resource.data, uid, progressId);
-        allow update: if isOwner(uid)
-          && isValidLessonProgress(request.resource.data, uid, progressId)
-          && preservesCompletedActivities(resource.data, request.resource.data)
-          && !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['userId', 'lessonId']);
-        allow delete: if isOwner(uid);
+        allow write: if false;
       }
 
       match /achievementProgress/{achievementId} {

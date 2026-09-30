@@ -15,10 +15,16 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField(
+            "boolean",
+            "USE_FIREBASE_EMULATORS",
+            (providers.gradleProperty("useFirebaseEmulators").orNull?.toBoolean() ?: false).toString(),
+        )
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -47,6 +53,7 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.database)
+    implementation(libs.firebase.functions)
 
     // Imagens dos blocos CHART_ANALYSIS
     implementation(libs.coil.compose)

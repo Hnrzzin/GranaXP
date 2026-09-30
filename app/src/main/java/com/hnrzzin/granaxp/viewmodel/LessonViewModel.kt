@@ -7,8 +7,6 @@ import com.hnrzzin.granaxp.model.RequirementType
 import com.hnrzzin.granaxp.repositories.AchievementRepository
 import com.hnrzzin.granaxp.repositories.LessonRepository
 import com.hnrzzin.granaxp.repositories.ModuleRepository
-import com.hnrzzin.granaxp.repositories.UserRepository
-import com.hnrzzin.granaxp.utils.XpUtils
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,7 +18,6 @@ class LessonViewModel(private val userId: String) : ViewModel() {
 
     private val repository = LessonRepository(userId)
     private val moduleRepository = ModuleRepository()
-    private val userRepository = UserRepository(userId)
     private val achievementRepository = AchievementRepository()
 
     private val _uiState = MutableStateFlow<LessonUiState>(LessonUiState.Loading)
@@ -75,21 +72,13 @@ class LessonViewModel(private val userId: String) : ViewModel() {
         loadLessonBlocksJob = viewModelScope.launch {
             _contentUiState.value = LessonContentUiState.Loading(lessonId)
             try {
-                val progressDocumentId = repository.startOrTouchLessonProgress(
-                    lessonId = lessonId,
-                    existingProgress = lessonWithProgress.progress,
-                )
-                val blocks = repository.getLessonBlocks(lessonId)
-                validateLessonActivities(blocks)
+                val opened = repository.openLesson(lessonId)
+                validateLessonActivities(opened.blocks)
                 if ((_contentUiState.value as? LessonContentUiState.Loading)?.lessonId == lessonId) {
                     _contentUiState.value = LessonContentUiState.Success(
                         lessonId = lessonId,
-                        blocks = blocks,
-                        progressDocumentId = progressDocumentId,
-                        completedActivityIds = lessonWithProgress.progress
-                            ?.completedActivityIds
-                            .orEmpty()
-                            .toSet(),
+                        blocks = opened.blocks,
+                        completedActivityIds = opened.completedActivityIds,
                     )
                     fetchLessons()
                 }
@@ -142,30 +131,6 @@ class LessonViewModel(private val userId: String) : ViewModel() {
         val answer = content.activityAnswers[blockId] ?: return
         if (answer.selectedAnswerIds.isEmpty() || answer.isSubmitting) return
 
-        if (!activityAnswerIsCorrect(block, answer.selectedAnswerIds)) {
-            _contentUiState.value = content.copy(
-                activityAnswers = content.activityAnswers + (
-                    blockId to answer.copy(
-                        result = ActivityAnswerResult.INCORRECT,
-                        message = block.feedback,
-                    )
-                ),
-            )
-            return
-        }
-
-        if (blockId in content.completedActivityIds) {
-            _contentUiState.value = content.copy(
-                activityAnswers = content.activityAnswers + (
-                    blockId to answer.copy(
-                        result = ActivityAnswerResult.CORRECT,
-                        message = null,
-                    )
-                ),
-            )
-            return
-        }
-
         _contentUiState.value = content.copy(
             activityAnswers = content.activityAnswers + (
                 blockId to answer.copy(
@@ -178,16 +143,19 @@ class LessonViewModel(private val userId: String) : ViewModel() {
 
         viewModelScope.launch {
             try {
-                repository.addCompletedActivity(
-                    progressDocumentId = content.progressDocumentId,
+                val result = repository.submitLessonActivity(
+                    lessonId = content.lessonId,
                     blockId = blockId,
+                    selectedAnswerIds = answer.selectedAnswerIds,
                 )
                 updateActivityAfterPersistence(
                     lessonId = content.lessonId,
                     blockId = blockId,
-                    result = ActivityAnswerResult.CORRECT,
+                    result = if (result.correct) ActivityAnswerResult.CORRECT else ActivityAnswerResult.INCORRECT,
+                    message = result.feedback,
+                    confirmedCompletedIds = if (result.correct) result.completedActivityIds else null,
                 )
-                fetchLessons()
+                if (result.correct) fetchLessons()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -206,17 +174,14 @@ class LessonViewModel(private val userId: String) : ViewModel() {
         blockId: String,
         result: ActivityAnswerResult,
         message: String? = null,
+        confirmedCompletedIds: Set<String>? = null,
     ) {
         val current = _contentUiState.value as? LessonContentUiState.Success ?: return
         if (current.lessonId != lessonId) return
         val currentAnswer = current.activityAnswers[blockId] ?: ActivityAnswerState()
 
         _contentUiState.value = current.copy(
-            completedActivityIds = if (result == ActivityAnswerResult.CORRECT) {
-                current.completedActivityIds + blockId
-            } else {
-                current.completedActivityIds
-            },
+            completedActivityIds = confirmedCompletedIds ?: current.completedActivityIds,
             activityAnswers = current.activityAnswers + (
                 blockId to currentAnswer.copy(
                     result = result,
@@ -228,11 +193,11 @@ class LessonViewModel(private val userId: String) : ViewModel() {
     }
 
     /**
-     * Conclui a lição: marca/cria o progresso, concede XP (regra #5) e
-     * verifica desbloqueio de conquistas de educação (regra #4).
+     * Solicita ao backend a conclusão e a concessão atômica de XP, depois
+     * verifica o desbloqueio das conquistas de educação.
      *
      * A checagem de conquistas é isolada em seu próprio try/catch: nesse ponto
-     * o progresso já foi persistido e o XP já foi creditado, então uma falha
+     * a conclusão e o XP já foram persistidos, então uma falha
      * ao checar conquistas (ex: instabilidade de rede) não deve fazer o
      * usuário achar que a conclusão inteira falhou — o que antes causava
      * risco de XP duplicado numa nova tentativa.
@@ -248,13 +213,7 @@ class LessonViewModel(private val userId: String) : ViewModel() {
 
         viewModelScope.launch {
             try {
-                val lesson = lessonWithProgress.lesson
-                repository.completeLessonProgress(
-                    lessonId = lesson.id,
-                    existingProgress = lessonWithProgress.progress,
-                )
-
-                val leveledUp = XpUtils.grantXp(userRepository, lesson.xpReward)
+                val result = repository.completeLesson(lessonWithProgress.lesson.id)
 
                 // Isolado de propósito — ver doc acima.
                 try {
@@ -266,8 +225,8 @@ class LessonViewModel(private val userId: String) : ViewModel() {
                 fetchLessons()
 
                 _completionEvent.value = LessonCompletionEvent.Completed(
-                    xpEarned = lesson.xpReward,
-                    leveledUp = leveledUp
+                    xpEarned = result.xpEarned,
+                    leveledUp = result.leveledUp,
                 )
             } catch (e: Exception) {
                 _completionEvent.value = LessonCompletionEvent.Error("Falha ao completar lição: ${e.message}")
