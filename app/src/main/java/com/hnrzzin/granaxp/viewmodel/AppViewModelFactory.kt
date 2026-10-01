@@ -30,6 +30,9 @@ class AppViewModelFactory(private val userId: String? = null) : ViewModelProvide
             modelClass.isAssignableFrom(LessonViewModel::class.java) -> {
                 LessonViewModel(userId) as T
             }
+            modelClass.isAssignableFrom(DailyMissionViewModel::class.java) -> {
+                DailyMissionViewModel() as T
+            }
             modelClass.isAssignableFrom(ReminderViewModel::class.java) -> {
                 ReminderViewModel(userId) as T
             }

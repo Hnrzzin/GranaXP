@@ -86,6 +86,136 @@ after(async () => {
   await Promise.all(clients.map(({auth}) => signOut(auth).catch(() => undefined)));
 });
 
+async function seedDailyMission(id, order, overrides = {}) {
+  await adminDb.doc(`dailyMissions/${id}`).set({
+    id, title: `Missão ${id}`, description: "Escolha a resposta.",
+    activityType: "MULTIPLE_CHOICE", alternatives: {a: "A", b: "B", c: "C"},
+    correctAnswerIds: ["a"], feedback: "Releia a explicação.",
+    chartImageUrl: null, order, ...overrides,
+  });
+}
+
+const OCT_1 = Date.parse("2026-10-01T03:00:00.000Z");
+const OCT_2 = Date.parse("2026-10-02T03:00:00.000Z");
+
+describe("Daily Mission", () => {
+  test("não disponibiliza missão antes da data-base nem com catálogo vazio", async () => {
+    const {functions} = await authenticatedClient();
+    await seedDailyMission("first", 1);
+    const open = httpsCallable(functions, "openDailyMission");
+    assert.deepEqual((await open({deviceTimeMillis: OCT_1 - 1})).data, {available: false});
+    await adminDb.doc("dailyMissions/first").delete();
+    assert.deepEqual((await open({deviceTimeMillis: OCT_1})).data, {available: false});
+  });
+
+  test("rotaciona pelo dia civil de São Paulo e devolve só a projeção pública", async () => {
+    const {uid, email, functions} = await authenticatedClient();
+    await seedUser(uid, email);
+    await seedDailyMission("second", 2);
+    await seedDailyMission("first", 1);
+    const open = httpsCallable(functions, "openDailyMission");
+    const first = (await open({deviceTimeMillis: OCT_1})).data;
+    assert.equal(first.date, "2026-10-01");
+    assert.equal(first.mission.id, "first");
+    assert.equal(first.mission.selectionMode, "SINGLE");
+    assert.equal(first.isCompleted, false);
+    assert.equal("correctAnswerIds" in first.mission, false);
+    assert.equal("feedback" in first.mission, false);
+    assert.equal((await open({deviceTimeMillis: OCT_2 - 1})).data.mission.id, "first");
+    assert.equal((await open({deviceTimeMillis: OCT_2})).data.mission.id, "second");
+    assert.equal((await open({deviceTimeMillis: OCT_2 + 86400000})).data.mission.id, "first");
+    assert.equal((await adminDb.doc(`users/${uid}/dailyMissionProgress/2026-10-01`).get()).exists, false);
+  });
+
+  test("desempata missões com a mesma ordem pelo ID", async () => {
+    const {functions} = await authenticatedClient();
+    await seedDailyMission("zeta", 1);
+    await seedDailyMission("alpha", 1);
+    const open = httpsCallable(functions, "openDailyMission");
+    assert.equal((await open({deviceTimeMillis: OCT_1})).data.mission.id, "alpha");
+    assert.equal((await open({deviceTimeMillis: OCT_2})).data.mission.id, "zeta");
+  });
+
+  test("valida resposta no backend, mostra feedback no erro e persiste uma vez sem XP", async () => {
+    const {uid, email, functions} = await authenticatedClient();
+    await seedUser(uid, email);
+    await seedDailyMission("first", 1);
+    const answer = httpsCallable(functions, "submitDailyMissionAnswer");
+    const request = {deviceTimeMillis: OCT_1, expectedDate: "2026-10-01", expectedMissionId: "first"};
+    const wrong = (await answer({...request, selectedAnswerIds: ["b"]})).data;
+    assert.equal(wrong.correct, false);
+    assert.equal(wrong.feedback, "Releia a explicação.");
+    assert.equal((await adminDb.doc(`users/${uid}/dailyMissionProgress/2026-10-01`).get()).exists, false);
+    const correct = (await answer({...request, selectedAnswerIds: ["a"]})).data;
+    assert.equal(correct.correct, true);
+    assert.equal(correct.alreadyCompleted, false);
+    const progressRef = adminDb.doc(`users/${uid}/dailyMissionProgress/2026-10-01`);
+    const first = (await progressRef.get()).data();
+    assert.deepEqual({missionId: first.missionId, date: first.date, isCompleted: first.isCompleted},
+      {missionId: "first", date: "2026-10-01", isCompleted: true});
+    assert.ok(first.completedAt instanceof Timestamp);
+    const again = (await answer({...request, selectedAnswerIds: ["b"]})).data;
+    assert.equal(again.alreadyCompleted, true);
+    assert.equal((await progressRef.get()).data().completedAt.toMillis(), first.completedAt.toMillis());
+    assert.equal((await adminDb.doc(`users/${uid}`).get()).data().xp, 0);
+    assert.equal((await adminDb.doc(`users/${uid}/learningStats/streak`).get()).exists, false);
+    const reopened = (await httpsCallable(functions, "openDailyMission")({deviceTimeMillis: OCT_1})).data;
+    assert.equal(reopened.isCompleted, true);
+  });
+
+  test("seleção múltipla exige conjunto exato e evita duplicação concorrente", async () => {
+    const {uid, email, functions} = await authenticatedClient();
+    await seedUser(uid, email);
+    await seedDailyMission("multi", 1, {correctAnswerIds: ["a", "c"]});
+    const open = (await httpsCallable(functions, "openDailyMission")({deviceTimeMillis: OCT_1})).data;
+    assert.equal(open.mission.selectionMode, "MULTIPLE");
+    const answer = httpsCallable(functions, "submitDailyMissionAnswer");
+    const request = {deviceTimeMillis: OCT_1, expectedDate: "2026-10-01", expectedMissionId: "multi"};
+    assert.equal((await answer({...request, selectedAnswerIds: ["a"]})).data.correct, false);
+    assert.equal((await answer({...request, selectedAnswerIds: ["a", "b", "c"]})).data.correct, false);
+    await assert.rejects(answer({...request, selectedAnswerIds: ["a", "a"]}));
+    const results = await Promise.all(Array.from({length: 4}, () =>
+      answer({...request, selectedAnswerIds: ["c", "a"]})));
+    assert.equal(results.filter((result) => result.data.alreadyCompleted === false).length, 1);
+    assert.equal(results.filter((result) => result.data.alreadyCompleted === true).length, 3);
+    assert.equal((await adminDb.collection(`users/${uid}/dailyMissionProgress`).get()).size, 1);
+  });
+
+  test("rejeita tela de outro dia e mantém conclusões independentes por data e usuário", async () => {
+    const a = await authenticatedClient();
+    const b = await authenticatedClient();
+    await seedUser(a.uid, a.email);
+    await seedUser(b.uid, b.email);
+    await seedDailyMission("first", 1);
+    await seedDailyMission("second", 2);
+    const answerA = httpsCallable(a.functions, "submitDailyMissionAnswer");
+    const answerB = httpsCallable(b.functions, "submitDailyMissionAnswer");
+    await assert.rejects(answerA({deviceTimeMillis: OCT_2, expectedDate: "2026-10-01",
+      expectedMissionId: "first", selectedAnswerIds: ["a"]}));
+    await assert.rejects(answerA({deviceTimeMillis: OCT_1, expectedDate: "2026-10-01",
+      expectedMissionId: "second", selectedAnswerIds: ["a"]}));
+    for (const [answer, time, date, missionId] of [
+      [answerA, OCT_1, "2026-10-01", "first"],
+      [answerA, OCT_2, "2026-10-02", "second"],
+      [answerB, OCT_1, "2026-10-01", "first"],
+    ]) {
+      assert.equal((await answer({deviceTimeMillis: time, expectedDate: date,
+        expectedMissionId: missionId, selectedAnswerIds: ["a"]})).data.correct, true);
+    }
+    assert.equal((await adminDb.collection(`users/${a.uid}/dailyMissionProgress`).get()).size, 2);
+    assert.equal((await adminDb.collection(`users/${b.uid}/dailyMissionProgress`).get()).size, 1);
+  });
+
+  test("exige autenticação e rejeita data inválida", async () => {
+    const {functions, auth} = await authenticatedClient();
+    await signOut(auth);
+    await assert.rejects(httpsCallable(functions, "openDailyMission")({deviceTimeMillis: OCT_1}),
+      (error) => error.code === "functions/unauthenticated");
+    const signedIn = await authenticatedClient();
+    await assert.rejects(httpsCallable(signedIn.functions, "openDailyMission")({deviceTimeMillis: "2026-10-01"}));
+  });
+});
+
 describe("completeLesson", () => {
   test("abre a lição sem revelar o gabarito e só registra acerto validado", async () => {
     const {uid, email, functions} = await authenticatedClient();
@@ -479,6 +609,9 @@ describe("deleteAccount", () => {
     await adminDb.doc(`users/${owner.uid}/achievementProgress/badge-a`).set({
       achievementId: "badge-a", currentProgress: 1, isUnlocked: true, unlockedAt: Timestamp.now(),
     });
+    await adminDb.doc(`users/${owner.uid}/dailyMissionProgress/2026-10-01`).set({
+      missionId: "mission-1", date: "2026-10-01", isCompleted: true, completedAt: Timestamp.now(),
+    });
     await adminDb.doc(`users/${owner.uid}/future/private/nested/doc-1`).set({secret: true});
     await adminDb.doc("achievementProgress/owner-progress").set({userId: owner.uid, achievementId: "a"});
     await adminDb.doc("achievementProgress/other-progress").set({userId: other.uid, achievementId: "a"});
@@ -488,6 +621,7 @@ describe("deleteAccount", () => {
     assert.equal((await adminDb.doc(`users/${owner.uid}`).get()).exists, false);
     assert.equal((await adminDb.doc(`users/${owner.uid}/goals/goal-1`).get()).exists, false);
     assert.equal((await adminDb.doc(`users/${owner.uid}/achievementProgress/badge-a`).get()).exists, false);
+    assert.equal((await adminDb.doc(`users/${owner.uid}/dailyMissionProgress/2026-10-01`).get()).exists, false);
     assert.equal((await adminDb.doc(`users/${owner.uid}/future/private/nested/doc-1`).get()).exists, false);
     assert.equal((await adminDb.doc("achievementProgress/owner-progress").get()).exists, false);
     assert.equal((await adminDb.doc(`users/${other.uid}`).get()).exists, true);

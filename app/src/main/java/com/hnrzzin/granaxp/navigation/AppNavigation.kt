@@ -200,6 +200,7 @@ fun AppNavigation() {
 
             LearnScreen(
                 viewModel = viewModel(factory = factory),
+                dailyMissionViewModel = viewModel(factory = factory),
                 userViewModel = viewModel(factory = factory),
                 onNavigateToHome = {
                     navController.navigate(Screen.Home.route) {

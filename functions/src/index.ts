@@ -6,6 +6,7 @@ import {
   getFirestore,
   type DocumentData,
   type DocumentSnapshot,
+  type QueryDocumentSnapshot,
   type Transaction,
 } from "firebase-admin/firestore";
 import {HttpsError, onCall, type CallableRequest} from "firebase-functions/v2/https";
@@ -18,6 +19,11 @@ const auth = getAuth();
 const callableOptions = {region: "southamerica-east1"};
 const GOAL_COMPLETION_XP = 200;
 const MAX_MONEY = 1_000_000_000_000;
+const DAILY_MISSION_BASE_UTC = Date.UTC(2026, 9, 1);
+const MILLIS_PER_DAY = 86_400_000;
+const missionDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit",
+});
 
 type XpResult = {xpEarned: number; leveledUp: boolean};
 
@@ -478,6 +484,127 @@ export const deleteAccount = onCall(callableOptions, async (request) => {
   try {
     await deleteAccountForUid(uid, db, auth);
     return {deleted: true};
+  } catch (error) {
+    return wrapUnexpected(error);
+  }
+});
+
+function missionDayFromDeviceTime(data: Record<string, unknown>): {date: string; daysSinceBase: number} {
+  const millis = data.deviceTimeMillis;
+  if (typeof millis !== "number" || !Number.isSafeInteger(millis) ||
+      !Number.isFinite(new Date(millis).getTime())) {
+    throw new HttpsError("invalid-argument", "Horário do dispositivo inválido.");
+  }
+  const parts = missionDateFormatter.formatToParts(new Date(millis));
+  const part = (type: string): number => Number(parts.find((item) => item.type === type)?.value);
+  const year = part("year");
+  const month = part("month");
+  const day = part("day");
+  const date = `${year.toString().padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return {date, daysSinceBase: (Date.UTC(year, month - 1, day) - DAILY_MISSION_BASE_UTC) / MILLIS_PER_DAY};
+}
+
+function dailyMissionForDate(documents: QueryDocumentSnapshot[], daysSinceBase: number): QueryDocumentSnapshot | null {
+  if (daysSinceBase < 0 || documents.length === 0) return null;
+  for (const document of documents) {
+    const mission = document.data();
+    if (!Number.isInteger(mission.order) ||
+        (mission.id !== undefined && mission.id !== document.id)) {
+      throw new HttpsError("failed-precondition", "Catálogo de missões inválido.");
+    }
+  }
+  const sorted = documents.slice().sort((left, right) =>
+    left.data().order - right.data().order || left.id.localeCompare(right.id));
+  return sorted[daysSinceBase % sorted.length];
+}
+
+function validatedDailyMission(document: QueryDocumentSnapshot) {
+  const mission = document.data();
+  const activity = validatedActivity(mission);
+  if (typeof mission.title !== "string" || mission.title.trim().length === 0 ||
+      typeof mission.description !== "string" || mission.description.trim().length === 0 ||
+      !["MULTIPLE_CHOICE", "TRUE_FALSE", "CLASSIFICATION", "FINANCIAL_SCENARIO", "CHART_ANALYSIS"]
+        .includes(mission.activityType) ||
+      (mission.chartImageUrl != null && typeof mission.chartImageUrl !== "string")) {
+    throw new HttpsError("failed-precondition", "Missão do catálogo inválida.");
+  }
+  return {mission, activity};
+}
+
+export const openDailyMission = onCall(callableOptions, async (request) => {
+  const uid = requireUid(request);
+  const {date, daysSinceBase} = missionDayFromDeviceTime(requireObject(request.data));
+  if (daysSinceBase < 0) return {available: false};
+  try {
+    const catalog = await db.collection("dailyMissions").get();
+    const selected = dailyMissionForDate(catalog.docs, daysSinceBase);
+    if (!selected) return {available: false};
+    const {mission, activity} = validatedDailyMission(selected);
+    const progress = await db.doc(`users/${uid}/dailyMissionProgress/${date}`).get();
+    if (progress.exists && progress.get("missionId") !== selected.id) {
+      throw new HttpsError("failed-precondition", "Missão do dia mudou; verifique o catálogo.");
+    }
+    return {
+      available: true,
+      date,
+      mission: {
+        id: selected.id, title: mission.title, description: mission.description,
+        activityType: mission.activityType, alternatives: activity.alternatives,
+        selectionMode: activity.answers.length > 1 ? "MULTIPLE" : "SINGLE",
+        chartImageUrl: mission.chartImageUrl ?? null,
+      },
+      isCompleted: progress.get("isCompleted") === true,
+      completedAt: progress.get("completedAt") ?? null,
+    };
+  } catch (error) {
+    return wrapUnexpected(error);
+  }
+});
+
+export const submitDailyMissionAnswer = onCall(callableOptions, async (request) => {
+  const uid = requireUid(request);
+  const data = requireObject(request.data);
+  const {date, daysSinceBase} = missionDayFromDeviceTime(data);
+  if (daysSinceBase < 0) throw new HttpsError("failed-precondition", "Ciclo de missões ainda não iniciado.");
+  const expectedDate = requireString(data, "expectedDate", 10);
+  const expectedMissionId = requireString(data, "expectedMissionId");
+  const selectedAnswers = data.selectedAnswerIds;
+  if (!Array.isArray(selectedAnswers) || selectedAnswers.length === 0 || selectedAnswers.length > 100 ||
+      !selectedAnswers.every((id) => typeof id === "string" && id.length > 0 && id.length <= 200) ||
+      new Set(selectedAnswers).size !== selectedAnswers.length) {
+    throw new HttpsError("invalid-argument", "Alternativas selecionadas inválidas.");
+  }
+  try {
+    return await db.runTransaction(async (transaction) => {
+      const catalog = await transaction.get(db.collection("dailyMissions"));
+      const selected = dailyMissionForDate(catalog.docs, daysSinceBase);
+      if (!selected) throw new HttpsError("failed-precondition", "Missão indisponível.");
+      if (date !== expectedDate || selected.id !== expectedMissionId) {
+        throw new HttpsError("failed-precondition", "A missão do dia mudou. Atualize a tela.");
+      }
+      const {activity} = validatedDailyMission(selected);
+      const progressRef = db.doc(`users/${uid}/dailyMissionProgress/${date}`);
+      const progress = await transaction.get(progressRef);
+      if (progress.exists && progress.get("missionId") !== selected.id) {
+        throw new HttpsError("failed-precondition", "Missão do dia mudou; verifique o catálogo.");
+      }
+      if (progress.get("isCompleted") === true) {
+        return {correct: true, alreadyCompleted: true};
+      }
+      if (selectedAnswers.some((id) => !Object.hasOwn(activity.alternatives, id)) ||
+          (activity.answers.length === 1 && selectedAnswers.length !== 1)) {
+        throw new HttpsError("invalid-argument", "Alternativas selecionadas inválidas.");
+      }
+      const correct = selectedAnswers.length === activity.answers.length &&
+        selectedAnswers.every((id) => activity.answers.includes(id));
+      if (!correct) return {correct: false, alreadyCompleted: false, feedback: activity.feedback};
+      const completed = {
+        missionId: selected.id, date, isCompleted: true, completedAt: FieldValue.serverTimestamp(),
+      };
+      if (progress.exists) transaction.update(progressRef, completed);
+      else transaction.create(progressRef, completed);
+      return {correct: true, alreadyCompleted: false};
+    });
   } catch (error) {
     return wrapUnexpected(error);
   }

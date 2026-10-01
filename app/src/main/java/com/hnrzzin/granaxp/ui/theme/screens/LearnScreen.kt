@@ -1,6 +1,7 @@
 package com.hnrzzin.granaxp.ui.theme.screens
 
 import androidx.compose.foundation.background
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +56,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.Lifecycle
 import coil3.compose.AsyncImage
 import com.hnrzzin.granaxp.model.ActivityType
 import com.hnrzzin.granaxp.model.LessonBlock
@@ -70,6 +73,8 @@ import com.hnrzzin.granaxp.viewmodel.ActivityAnswerState
 import com.hnrzzin.granaxp.viewmodel.LessonContentUiState
 import com.hnrzzin.granaxp.viewmodel.LessonUiState
 import com.hnrzzin.granaxp.viewmodel.LessonViewModel
+import com.hnrzzin.granaxp.viewmodel.DailyMissionUiState
+import com.hnrzzin.granaxp.viewmodel.DailyMissionViewModel
 import com.hnrzzin.granaxp.viewmodel.LessonWithProgress
 import com.hnrzzin.granaxp.viewmodel.ModuleWithLessons
 import com.hnrzzin.granaxp.viewmodel.UserUiState
@@ -83,6 +88,7 @@ private data class LessonSelection(
 @Composable
 fun LearnScreen(
     viewModel: LessonViewModel,
+    dailyMissionViewModel: DailyMissionViewModel,
     onNavigateToHome: () -> Unit,
     onNavigateToTransactions: () -> Unit,
     userViewModel: UserViewModel,
@@ -92,7 +98,12 @@ fun LearnScreen(
     val contentUiState by viewModel.contentUiState.collectAsStateWithLifecycle()
     val completionEvent by viewModel.completionEvent.collectAsStateWithLifecycle()
     val userUiState by userViewModel.uiState.collectAsStateWithLifecycle()
+    val dailyMissionState by dailyMissionViewModel.uiState.collectAsStateWithLifecycle()
     var selection by remember { mutableStateOf<LessonSelection?>(null) }
+    var showingDailyMission by remember { mutableStateOf(false) }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { dailyMissionViewModel.refresh() }
+    BackHandler(enabled = showingDailyMission) { showingDailyMission = false }
 
     val currentLesson = selection?.let { selected ->
         (uiState as? LessonUiState.Success)
@@ -101,7 +112,15 @@ fun LearnScreen(
             ?: selected.lesson
     }
 
-    if (selection != null && currentLesson != null) {
+    if (showingDailyMission) {
+        DailyMissionPage(
+            state = dailyMissionState,
+            onBack = { showingDailyMission = false },
+            onSelect = dailyMissionViewModel::selectAnswer,
+            onSubmit = dailyMissionViewModel::submitAnswer,
+            onRefresh = dailyMissionViewModel::refresh,
+        )
+    } else if (selection != null && currentLesson != null) {
         LessonContentPage(
             lessonWithProgress = currentLesson,
             lessonNumber = selection!!.lessonNumber,
@@ -119,10 +138,13 @@ fun LearnScreen(
     } else {
         LearningTrail(
             uiState = uiState,
+            dailyMissionState = dailyMissionState,
             userUiState = userUiState,
             onNavigateToHome = onNavigateToHome,
             onNavigateToTransactions = onNavigateToTransactions,
             onNavigateToProfile = onNavigateToProfile,
+            onDailyMissionClick = { showingDailyMission = true },
+            onDailyMissionRefresh = dailyMissionViewModel::refresh,
             onLessonClick = { item, index ->
                 viewModel.openLesson(item)
                 selection = LessonSelection(
@@ -146,10 +168,13 @@ fun LearnScreen(
 @Composable
 private fun LearningTrail(
     uiState: LessonUiState,
+    dailyMissionState: DailyMissionUiState,
     userUiState: UserUiState,
     onNavigateToHome: () -> Unit,
     onNavigateToTransactions: () -> Unit,
     onNavigateToProfile: () -> Unit,
+    onDailyMissionClick: () -> Unit,
+    onDailyMissionRefresh: () -> Unit,
     onLessonClick: (LessonWithProgress, Int) -> Unit,
 ) {
     Scaffold(
@@ -177,8 +202,11 @@ private fun LearningTrail(
             is LessonUiState.Error -> ErrorState(uiState.message, paddingValues)
             is LessonUiState.Success -> LearningContent(
                 state = uiState,
+                dailyMissionState = dailyMissionState,
                 paddingValues = paddingValues,
                 onLessonClick = onLessonClick,
+                onDailyMissionClick = onDailyMissionClick,
+                onDailyMissionRefresh = onDailyMissionRefresh,
             )
         }
     }
@@ -211,8 +239,11 @@ private fun ErrorState(message: String, paddingValues: PaddingValues) {
 @Composable
 private fun LearningContent(
     state: LessonUiState.Success,
+    dailyMissionState: DailyMissionUiState,
     paddingValues: PaddingValues,
     onLessonClick: (LessonWithProgress, Int) -> Unit,
+    onDailyMissionClick: () -> Unit,
+    onDailyMissionRefresh: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -222,6 +253,17 @@ private fun LearningContent(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item { LearnHeaderCard() }
+
+        if (dailyMissionState !is DailyMissionUiState.Unavailable &&
+            dailyMissionState !is DailyMissionUiState.Loading) {
+            item {
+                DailyMissionEntry(
+                    state = dailyMissionState,
+                    onOpen = onDailyMissionClick,
+                    onRefresh = onDailyMissionRefresh,
+                )
+            }
+        }
 
         items(state.modules, key = { it.module.idModule }) { module ->
             ModuleSection(module = module, onLessonClick = onLessonClick)

@@ -293,7 +293,7 @@ describe("dados privados da V1", () => {
 });
 
 describe("catálogos globais", () => {
-  test("usuário autenticado lê catálogos e blocos, mas não os altera", async () => {
+  test("usuário autenticado lê catálogos públicos, mas não blocos nem gabarito diário", async () => {
     await seed("lessons/lesson-1", {
       title: "Aula",
       description: "Resumo",
@@ -341,13 +341,15 @@ describe("catálogos globais", () => {
       "lessons/lesson-1",
       "modules/module-1",
       "achievements/achievement-1",
-      "dailyMissions/mission-1",
     ]) {
       await assertSucceeds(getDoc(doc(db, path)));
       await assertFails(setDoc(doc(db, path), { ataque: true }));
     }
     await assertFails(getDoc(doc(db, "lessons/lesson-1/blocks/block-1")));
     await assertFails(getDocs(collection(db, "lessons/lesson-1/blocks")));
+    await assertFails(getDoc(doc(db, "dailyMissions/mission-1")));
+    await assertFails(getDocs(collection(db, "dailyMissions")));
+    await assertFails(setDoc(doc(db, "dailyMissions/mission-1"), {ataque: true}));
     await assertSucceeds(getDocs(query(collection(db, "lessons"))));
   });
 
@@ -530,7 +532,7 @@ describe("caminhos planejados da Fase 1", () => {
     ));
   });
 
-  test("DailyMissionProgress e streak ficam legíveis só pelo dono e sem escrita cliente por enquanto", async () => {
+  test("DailyMissionProgress e streak ficam legíveis só pelo dono e sem escrita cliente", async () => {
     await seed(`users/${USER_A}/dailyMissionProgress/2026-10-01`, {
       missionId: "mission-1",
       date: "2026-10-01",
@@ -555,10 +557,24 @@ describe("caminhos planejados da Fase 1", () => {
     await assertFails(getDoc(
       doc(dbB, `users/${USER_A}/dailyMissionProgress/2026-10-01`),
     ));
+    await assertFails(getDoc(
+      doc(testEnv.unauthenticatedContext().firestore(),
+        `users/${USER_A}/dailyMissionProgress/2026-10-01`),
+    ));
+    await assertFails(getDocs(collection(dbB, `users/${USER_A}/dailyMissionProgress`)));
+    await assertFails(setDoc(
+      doc(dbB, `users/${USER_A}/dailyMissionProgress/2026-10-02`),
+      {missionId: "mission-1", date: "2026-10-02", isCompleted: true},
+    ));
+    await assertFails(setDoc(
+      doc(dbA, `users/${USER_A}/dailyMissionProgress/2026-10-02`),
+      {missionId: "mission-1", date: "2026-10-02", isCompleted: true},
+    ));
     await assertFails(updateDoc(
       doc(dbA, `users/${USER_A}/dailyMissionProgress/2026-10-01`),
       { isCompleted: false },
     ));
+    await assertFails(deleteDoc(doc(dbA, `users/${USER_A}/dailyMissionProgress/2026-10-01`)));
     await assertFails(updateDoc(
       doc(dbA, `users/${USER_A}/learningStats/streak`),
       { currentStreak: 30 },
