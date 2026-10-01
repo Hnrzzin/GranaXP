@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.hnrzzin.granaxp.model.AchievementModel
 import com.hnrzzin.granaxp.model.AchievementProgressModel
+import com.hnrzzin.granaxp.model.RequirementType
 import com.hnrzzin.granaxp.repositories.AchievementRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +17,28 @@ data class AchievementWithProgress(
     val progress: AchievementProgressModel?
 )
 
+internal fun combineAchievements(
+    achievements: List<AchievementModel>,
+    canonicalProgress: List<AchievementProgressModel>,
+    legacyProgress: List<AchievementProgressModel>,
+): List<AchievementWithProgress> {
+    val canonicalById = canonicalProgress.associateBy { it.achievementId }
+    val legacyById = legacyProgress.groupBy { it.achievementId }.mapValues { (_, records) ->
+        records.maxWith(compareBy<AchievementProgressModel> { it.isUnlocked }
+            .thenBy { it.currentProgress }
+            .thenBy { it.id })
+    }
+    val legacyTypes = setOf(
+        RequirementType.TRANSACTION_COUNT, RequirementType.LESSON_COUNT,
+        RequirementType.GOAL_COUNT, RequirementType.MONTHLY_SAVINGS,
+    )
+    return achievements.map { achievement ->
+        val progress = canonicalById[achievement.id]
+            ?: legacyById[achievement.id].takeIf { achievement.requirementType in legacyTypes }
+        AchievementWithProgress(achievement, progress)
+    }
+}
+
 sealed class AchievementUiState {
     object Loading : AchievementUiState()
     data class Success(val achievements: List<AchievementWithProgress>) : AchievementUiState()
@@ -25,12 +48,11 @@ sealed class AchievementUiState {
 /**
  * Responsável apenas por buscar e exibir conquistas + progresso (usado no ProfileScreen).
  *
- * O desbloqueio em si (checagem de requisito x progresso atual) acontece dentro
- * de cada feature ViewModel logo após a ação relevante:
+ * Os gatilhos legados continuam nos ViewModels da V1:
  * - TransactionViewModel.checkFinancialAchievements() (categoria FINANCAS)
  * - LessonViewModel.checkEducationAchievements() (categoria EDUCACAO)
  *
- * Isso evita acoplamento cruzado entre ViewModels — nenhum precisa conhecer o outro.
+ * MODULE_COMPLETION é concedida pelo backend em completeLesson.
  */
 class AchievementViewModel(private val userId: String) : ViewModel() {
 
@@ -48,14 +70,11 @@ class AchievementViewModel(private val userId: String) : ViewModel() {
             _uiState.value = AchievementUiState.Loading
             try {
                 val achievements = repository.getAchievements()
-                val progressList = repository.getAchievementProgress(userId)
-
-                val achievementsWithProgress = achievements.map { achievement ->
-                    val progress = progressList.find { it.achievementId == achievement.id }
-                    AchievementWithProgress(achievement = achievement, progress = progress)
-                }
-
-                _uiState.value = AchievementUiState.Success(achievementsWithProgress)
+                val canonicalProgress = repository.getUserAchievementProgress(userId)
+                val legacyProgress = repository.getAchievementProgress(userId)
+                _uiState.value = AchievementUiState.Success(
+                    combineAchievements(achievements, canonicalProgress, legacyProgress),
+                )
             } catch (e: Exception) {
                 _uiState.value = AchievementUiState.Error("Falha ao buscar conquistas: ${e.message}")
             }

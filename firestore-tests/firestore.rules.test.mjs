@@ -362,6 +362,8 @@ describe("catálogos globais", () => {
 
 describe("achievementProgress legado", () => {
   test("preserva a consulta V1 filtrada por userId e as escritas do dono", async () => {
+    await seed("achievements/achievement-1", {requirementType: "TRANSACTION_COUNT"});
+    await seed("achievements/achievement-2", {requirementType: "GOAL_COUNT"});
     await seed("achievementProgress/progress-a", {
       userId: USER_A,
       achievementId: "achievement-1",
@@ -424,6 +426,30 @@ describe("achievementProgress legado", () => {
       lastUpdated: Timestamp.now(),
     }));
   });
+
+  test("não aceita conquista de módulo forjada no caminho legado", async () => {
+    await seed("achievements/module-badge", {
+      requirementType: "MODULE_COMPLETION", referenceId: "module-a",
+    });
+    const dbA = userDb(USER_A);
+    await assertFails(setDoc(doc(dbA, "achievementProgress/forged-module"), {
+      userId: USER_A,
+      achievementId: "module-badge",
+      currentProgress: 1,
+      isUnlocked: true,
+      lastUpdated: Timestamp.now(),
+    }));
+    await seed("achievementProgress/old-module", {
+      userId: USER_A,
+      achievementId: "module-badge",
+      currentProgress: 0,
+      isUnlocked: false,
+      lastUpdated: Timestamp.now(),
+    });
+    await assertFails(updateDoc(doc(dbA, "achievementProgress/old-module"), {
+      currentProgress: 1, isUnlocked: true,
+    }));
+  });
 });
 
 describe("caminhos planejados da Fase 1", () => {
@@ -477,25 +503,29 @@ describe("caminhos planejados da Fase 1", () => {
     }));
   });
 
-  test("aceita AchievementProgress futuro somente no caminho e ID do dono", async () => {
+  test("progresso novo é legível só pelo dono e não aceita escrita direta", async () => {
     const dbA = userDb(USER_A);
     const data = {
       achievementId: "achievement-1",
       currentProgress: 1,
-      isUnlocked: false,
-      unlockedAt: null,
+      isUnlocked: true,
+      unlockedAt: Timestamp.now(),
     };
-
-    await assertSucceeds(setDoc(
-      doc(dbA, `users/${USER_A}/achievementProgress/achievement-1`),
-      data,
-    ));
+    const own = doc(dbA, `users/${USER_A}/achievementProgress/achievement-1`);
+    const other = doc(userDb(USER_B), `users/${USER_A}/achievementProgress/achievement-1`);
+    const anonymous = doc(testEnv.unauthenticatedContext().firestore(),
+      `users/${USER_A}/achievementProgress/achievement-1`);
+    await assertFails(setDoc(own, data));
+    await seed(`users/${USER_A}/achievementProgress/achievement-1`, data);
+    await assertSucceeds(getDoc(own));
+    await assertFails(getDoc(other));
+    await assertFails(getDoc(anonymous));
+    await assertFails(updateDoc(own, {currentProgress: 2}));
+    await assertFails(updateDoc(own, {isUnlocked: false, unlockedAt: null}));
+    await assertFails(deleteDoc(own));
+    await assertFails(setDoc(other, data));
     await assertFails(setDoc(
       doc(dbA, `users/${USER_A}/achievementProgress/wrong-id`),
-      data,
-    ));
-    await assertFails(setDoc(
-      doc(dbA, `users/${USER_B}/achievementProgress/achievement-1`),
       data,
     ));
   });

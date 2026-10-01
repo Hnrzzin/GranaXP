@@ -69,6 +69,13 @@ async function seedLesson(id, {xpReward = 50, activityIds = [], moduleId = "", o
   ));
 }
 
+async function seedModuleAchievement(id, moduleId) {
+  await adminDb.doc(`achievements/${id}`).set({
+    title: "Módulo concluído", category: "EDUCACAO", requirementType: "MODULE_COMPLETION",
+    requirementValue: 1, referenceId: moduleId,
+  });
+}
+
 before(async () => {
   await clearEmulators();
 });
@@ -230,6 +237,7 @@ describe("completeLesson", () => {
       httpsCallable(functions, "completeLesson")({lessonId: "lesson-1"}),
       (error) => error.code === "functions/failed-precondition",
     );
+    assert.equal((await adminDb.doc(`users/${uid}`).get()).data().level, 1);
     assert.equal((await adminDb.doc(`users/${uid}`).get()).data().xp, 0);
   });
 
@@ -245,6 +253,118 @@ describe("completeLesson", () => {
     assert.equal(result.data.xpEarned, 25);
     assert.equal((await adminDb.doc(`users/${uid}/lessonProgress/legacy-auto-id`).get()).data().isCompleted, true);
     assert.equal((await adminDb.doc(`users/${uid}/lessonProgress/lesson-legacy`).get()).exists, false);
+  });
+
+  test("conclusão de outro módulo não desbloqueia o módulo incompleto", async () => {
+    const {uid, email, functions} = await authenticatedClient();
+    const other = await authenticatedClient();
+    await seedUser(uid, email);
+    await seedUser(other.uid, other.email);
+    await adminDb.doc("modules/module-a").set({title: "A"});
+    await adminDb.doc("modules/module-b").set({title: "B"});
+    await adminDb.doc("modules/module-empty").set({title: "Sem lições"});
+    await seedLesson("a-1", {moduleId: "module-a", order: 1});
+    await seedLesson("a-2", {moduleId: "module-a", order: 2});
+    await seedLesson("b-1", {moduleId: "module-b", order: 1});
+    await seedModuleAchievement("badge-a", "module-a");
+    await seedModuleAchievement("badge-b", "module-b");
+    await seedModuleAchievement("badge-empty", "module-empty");
+    const call = httpsCallable(functions, "completeLesson");
+
+    await httpsCallable(functions, "openLesson")({lessonId: "a-1"});
+    await call({lessonId: "a-1"});
+    assert.equal((await adminDb.doc(`users/${uid}/achievementProgress/badge-a`).get()).exists, false);
+
+    await httpsCallable(functions, "openLesson")({lessonId: "b-1"});
+    await call({lessonId: "b-1", userId: other.uid});
+    const badgeB = (await adminDb.doc(`users/${uid}/achievementProgress/badge-b`).get()).data();
+    assert.equal(badgeB.achievementId, "badge-b");
+    assert.equal(badgeB.currentProgress, 1);
+    assert.equal(badgeB.isUnlocked, true);
+    assert.ok(badgeB.unlockedAt instanceof Timestamp);
+    assert.deepEqual(Object.keys(badgeB).sort(), ["achievementId", "currentProgress", "isUnlocked", "unlockedAt"].sort());
+    assert.equal((await adminDb.doc(`users/${uid}/achievementProgress/badge-a`).get()).exists, false);
+    assert.equal((await adminDb.doc(`users/${uid}/achievementProgress/badge-empty`).get()).exists, false);
+    assert.equal((await adminDb.doc(`users/${other.uid}/achievementProgress/badge-b`).get()).exists, false);
+    assert.equal((await adminDb.doc(`users/${uid}`).get()).data().level, 2);
+    assert.equal((await adminDb.doc(`users/${uid}`).get()).data().xp, 0);
+  });
+
+  test("conclusão histórica sem validação do backend não prova conclusão de módulo", async () => {
+    const {uid, email, functions} = await authenticatedClient();
+    await seedUser(uid, email);
+    await adminDb.doc("modules/module-a").set({title: "A"});
+    await seedLesson("a-1", {moduleId: "module-a", order: 1, xpReward: 25});
+    await seedLesson("a-2", {moduleId: "module-a", order: 2, xpReward: 30});
+    await seedModuleAchievement("badge-a", "module-a");
+    await seedModuleAchievement("wrong-module", "module-b");
+    await adminDb.doc(`users/${uid}/lessonProgress/legacy-random-id`).set({
+      userId: uid, lessonId: "a-1", isCompleted: true,
+      completedAt: Timestamp.now(), lastAccessed: Timestamp.now(),
+    });
+    await adminDb.doc("achievementProgress/legacy-badge").set({
+      userId: uid, achievementId: "badge-a", currentProgress: 1, isUnlocked: true,
+      lastUpdated: Timestamp.now(),
+    });
+    assert.equal((await adminDb.doc(`users/${uid}/achievementProgress/badge-a`).get()).exists, false);
+    await httpsCallable(functions, "openLesson")({lessonId: "a-2"});
+    const result = await httpsCallable(functions, "completeLesson")({lessonId: "a-2", moduleId: "module-b"});
+    assert.equal(result.data.xpEarned, 30);
+    assert.equal((await adminDb.doc(`users/${uid}/achievementProgress/badge-a`).get()).exists, false);
+    assert.equal((await adminDb.doc(`users/${uid}/achievementProgress/wrong-module`).get()).exists, false);
+    assert.equal((await adminDb.doc(`users/${uid}`).get()).data().xp, 30);
+  });
+
+  test("conclusão validada pelo backend em progresso de ID legado prova conclusão de módulo", async () => {
+    const {uid, email, functions} = await authenticatedClient();
+    await seedUser(uid, email);
+    await adminDb.doc("modules/module-a").set({title: "A"});
+    await seedLesson("a-1", {moduleId: "module-a", order: 1, xpReward: 25});
+    await seedLesson("a-2", {moduleId: "module-a", order: 2, xpReward: 30});
+    await seedModuleAchievement("badge-a", "module-a");
+    const legacyProgressRef = adminDb.doc(`users/${uid}/lessonProgress/legacy-random-id`);
+    await legacyProgressRef.set({
+      userId: uid, lessonId: "a-1", isCompleted: false, lastAccessed: Timestamp.now(),
+    });
+    const call = httpsCallable(functions, "completeLesson");
+    await call({lessonId: "a-1"});
+    assert.equal((await legacyProgressRef.get()).data().completionValidationVersion, 1);
+    assert.equal((await adminDb.doc(`users/${uid}/achievementProgress/badge-a`).get()).exists, false);
+    await httpsCallable(functions, "openLesson")({lessonId: "a-2"});
+    await call({lessonId: "a-2"});
+    assert.equal((await adminDb.doc(`users/${uid}/achievementProgress/badge-a`).get()).data().isUnlocked, true);
+  });
+
+  test("chamadas concorrentes desbloqueiam uma vez e preservam o primeiro unlockedAt", async () => {
+    const {uid, email, functions} = await authenticatedClient();
+    await seedUser(uid, email);
+    await adminDb.doc("modules/module-a").set({title: "A"});
+    await seedLesson("a-1", {moduleId: "module-a", xpReward: 40});
+    await seedModuleAchievement("badge-a", "module-a");
+    await httpsCallable(functions, "openLesson")({lessonId: "a-1"});
+    const call = httpsCallable(functions, "completeLesson");
+    const [first, second] = await Promise.all([call({lessonId: "a-1"}), call({lessonId: "a-1"})]);
+    assert.deepEqual([first.data.xpEarned, second.data.xpEarned].sort((a, b) => a - b), [0, 40]);
+    const progressRef = adminDb.doc(`users/${uid}/achievementProgress/badge-a`);
+    const firstUnlock = (await progressRef.get()).data().unlockedAt.toMillis();
+    await call({lessonId: "a-1"});
+    assert.equal((await progressRef.get()).data().unlockedAt.toMillis(), firstUnlock);
+    assert.equal((await adminDb.collection(`users/${uid}/achievementProgress`).get()).size, 1);
+    assert.equal((await adminDb.doc(`users/${uid}`).get()).data().xp, 40);
+  });
+
+  test("lição historicamente concluída sem novo evento não gera conquista retroativa", async () => {
+    const {uid, email, functions} = await authenticatedClient();
+    await seedUser(uid, email);
+    await adminDb.doc("modules/module-a").set({title: "A"});
+    await seedLesson("a-1", {moduleId: "module-a"});
+    await seedModuleAchievement("badge-a", "module-a");
+    await adminDb.doc(`users/${uid}/lessonProgress/legacy-random-id`).set({
+      userId: uid, lessonId: "a-1", isCompleted: true, lastAccessed: Timestamp.now(),
+    });
+    const result = await httpsCallable(functions, "completeLesson")({lessonId: "a-1"});
+    assert.equal(result.data.xpEarned, 0);
+    assert.equal((await adminDb.doc(`users/${uid}/achievementProgress/badge-a`).get()).exists, false);
   });
 });
 
@@ -356,6 +476,9 @@ describe("deleteAccount", () => {
     await seedUser(owner.uid, owner.email);
     await seedUser(other.uid, other.email);
     await adminDb.doc(`users/${owner.uid}/goals/goal-1`).set({title: "Meta"});
+    await adminDb.doc(`users/${owner.uid}/achievementProgress/badge-a`).set({
+      achievementId: "badge-a", currentProgress: 1, isUnlocked: true, unlockedAt: Timestamp.now(),
+    });
     await adminDb.doc(`users/${owner.uid}/future/private/nested/doc-1`).set({secret: true});
     await adminDb.doc("achievementProgress/owner-progress").set({userId: owner.uid, achievementId: "a"});
     await adminDb.doc("achievementProgress/other-progress").set({userId: other.uid, achievementId: "a"});
@@ -364,6 +487,7 @@ describe("deleteAccount", () => {
     assert.deepEqual(result.data, {deleted: true});
     assert.equal((await adminDb.doc(`users/${owner.uid}`).get()).exists, false);
     assert.equal((await adminDb.doc(`users/${owner.uid}/goals/goal-1`).get()).exists, false);
+    assert.equal((await adminDb.doc(`users/${owner.uid}/achievementProgress/badge-a`).get()).exists, false);
     assert.equal((await adminDb.doc(`users/${owner.uid}/future/private/nested/doc-1`).get()).exists, false);
     assert.equal((await adminDb.doc("achievementProgress/owner-progress").get()).exists, false);
     assert.equal((await adminDb.doc(`users/${other.uid}`).get()).exists, true);

@@ -157,6 +157,33 @@ async function assertLessonUnlocked(
   }
 }
 
+async function moduleAchievementsToUnlock(
+  transaction: Transaction, uid: string, lessonId: string, moduleId: string,
+): Promise<{achievementId: string; progress: DocumentSnapshot}[]> {
+  if (!moduleId) return []; // Legacy lessons do not belong to a module.
+  const moduleLessons = await transaction.get(db.collection("lessons").where("moduleId", "==", moduleId));
+  if (moduleLessons.empty || !moduleLessons.docs.some((lesson) => lesson.id === lessonId)) {
+    throw new HttpsError("failed-precondition", "Lição fora do módulo.");
+  }
+  const otherLessons = moduleLessons.docs.filter((lesson) => lesson.id !== lessonId);
+  const otherProgress = await Promise.all(otherLessons.map((lesson) =>
+    lessonProgressDocuments(transaction, uid, lesson.id),
+  ));
+  if (otherProgress.some((documents) => !documents.some((document) => {
+    const data = document.data()!;
+    return isCompleted(data) && data.completionValidationVersion === 1;
+  }))) {
+    return [];
+  }
+  const definitions = await transaction.get(db.collection("achievements").where("referenceId", "==", moduleId));
+  return Promise.all(definitions.docs
+    .filter((achievement) => achievement.get("requirementType") === "MODULE_COMPLETION")
+    .map(async (achievement) => ({
+      achievementId: achievement.id,
+      progress: await transaction.get(db.doc(`users/${uid}/achievementProgress/${achievement.id}`)),
+    })));
+}
+
 function validatedActivity(block: DocumentData): {alternatives: Record<string, string>; answers: string[]; feedback: string} {
   const alternatives = block.alternatives;
   const answers = block.correctAnswerIds;
@@ -306,9 +333,29 @@ export const completeLesson = onCall(callableOptions, async (request) => {
       if (!Number.isInteger(xpReward) || xpReward < 0 || xpReward > 1_000_000) {
         throw new HttpsError("failed-precondition", "Recompensa da lição inválida.");
       }
+      const moduleId = lessonSnapshot.data()?.moduleId;
+      const achievements = await moduleAchievementsToUnlock(
+        transaction, uid, lessonId, typeof moduleId === "string" ? moduleId : "",
+      );
       const xp = applyXp(userSnapshot.data()!, xpReward);
-      transaction.update(target.ref, {isCompleted: true, completedAt: FieldValue.serverTimestamp()});
+      transaction.update(target.ref, {
+        isCompleted: true, completedAt: FieldValue.serverTimestamp(), completionValidationVersion: 1,
+      });
       transaction.update(userRef, xp.updates);
+      for (const {achievementId, progress} of achievements) {
+        if (progress.data()?.isUnlocked === true) continue;
+        if (progress.exists) {
+          transaction.update(progress.ref, {
+            achievementId, currentProgress: 1, isUnlocked: true,
+            unlockedAt: progress.data()?.unlockedAt ?? FieldValue.serverTimestamp(),
+          });
+        } else {
+          transaction.create(progress.ref, {
+            achievementId, currentProgress: 1, isUnlocked: true,
+            unlockedAt: FieldValue.serverTimestamp(),
+          });
+        }
+      }
       return {xpEarned: xpReward, leveledUp: xp.leveledUp, alreadyCompleted: false};
     });
   } catch (error) {

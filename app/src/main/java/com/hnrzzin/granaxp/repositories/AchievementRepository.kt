@@ -1,9 +1,24 @@
 package com.hnrzzin.granaxp.repositories
 
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.AchievementModel
 import com.hnrzzin.granaxp.model.AchievementProgressModel
 import kotlinx.coroutines.tasks.await
+
+internal fun legacyAchievementProgressData(
+    userId: String,
+    achievementId: String,
+    currentProgress: Int,
+    isUnlocked: Boolean,
+    lastUpdated: Timestamp,
+): Map<String, Any> = mapOf(
+    "userId" to userId,
+    "achievementId" to achievementId,
+    "currentProgress" to currentProgress,
+    "isUnlocked" to isUnlocked,
+    "lastUpdated" to lastUpdated,
+)
 
 class AchievementRepository {
     private val db = FirebaseFirestore.getInstance()
@@ -30,6 +45,18 @@ class AchievementRepository {
         }
     }
 
+    suspend fun getUserAchievementProgress(userId: String): List<AchievementProgressModel> {
+        return db.collection("users").document(userId).collection("achievementProgress")
+            .get().await()
+            .map { document ->
+                document.toObject(AchievementProgressModel::class.java).also {
+                    check(it.achievementId == document.id) {
+                        "Progresso de conquista com ID inconsistente."
+                    }
+                }
+            }
+    }
+
     suspend fun createAchievementProgress(
         userId: String,
         achievementId: String,
@@ -37,11 +64,8 @@ class AchievementRepository {
         isUnlocked: Boolean
     ): Boolean {
         return try {
-            val progress = AchievementProgressModel(
-                userId = userId,
-                achievementId = achievementId,
-                currentProgress = currentProgress,
-                isUnlocked = isUnlocked
+            val progress = legacyAchievementProgressData(
+                userId, achievementId, currentProgress, isUnlocked, Timestamp.now(),
             )
             db.collection("achievementProgress").add(progress).await()
             true

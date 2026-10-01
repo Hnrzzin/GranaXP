@@ -182,22 +182,6 @@ service cloud.firestore {
         && data.isCompleted is bool;
     }
 
-    function isValidUserAchievementProgress(data, achievementId) {
-      return hasRequired(data, [
-          'achievementId', 'currentProgress', 'isUnlocked'
-        ])
-        && hasOnly(data, [
-          'achievementId', 'currentProgress', 'isUnlocked', 'unlockedAt'
-        ])
-        && data.achievementId is string
-        && data.achievementId == achievementId
-        && data.currentProgress is int
-        && data.currentProgress >= 0
-        && data.currentProgress <= 1000000000
-        && data.isUnlocked is bool
-        && validOptionalTimestamp(data, 'unlockedAt');
-    }
-
     function isValidLegacyAchievementProgress(data) {
       return hasRequired(data, [
           'userId', 'achievementId', 'currentProgress',
@@ -215,6 +199,14 @@ service cloud.firestore {
         && data.isUnlocked is bool
         && validOptionalBool(data, 'unlocked')
         && data.lastUpdated is timestamp;
+    }
+
+    function isLegacyAchievementType(achievementId) {
+      return exists(/databases/$(database)/documents/achievements/$(achievementId))
+        && get(/databases/$(database)/documents/achievements/$(achievementId))
+          .data.requirementType in [
+            'TRANSACTION_COUNT', 'LESSON_COUNT', 'GOAL_COUNT', 'MONTHLY_SAVINGS'
+          ];
     }
 
     // ==============================================================
@@ -308,13 +300,9 @@ service cloud.firestore {
 
       match /achievementProgress/{achievementId} {
         allow read: if isOwner(uid);
-        allow create: if isOwner(uid)
-          && isValidUserAchievementProgress(request.resource.data, achievementId);
-        allow update: if isOwner(uid)
-          && isValidUserAchievementProgress(request.resource.data, achievementId)
-          && !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['achievementId']);
-        allow delete: if isOwner(uid);
+        // MODULE_COMPLETION is granted by completeLesson. The new path is
+        // backend-owned so the Android client cannot forge an unlock.
+        allow write: if false;
       }
 
       // These two future paths participate in the planned atomic
@@ -340,12 +328,14 @@ service cloud.firestore {
         && resource.data.userId == request.auth.uid;
       allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
-        && isValidLegacyAchievementProgress(request.resource.data);
+        && isValidLegacyAchievementProgress(request.resource.data)
+        && isLegacyAchievementType(request.resource.data.achievementId);
       allow update: if isAuthenticated()
         && resource.data.userId == request.auth.uid
         && request.resource.data.userId == resource.data.userId
         && request.resource.data.achievementId == resource.data.achievementId
-        && isValidLegacyAchievementProgress(request.resource.data);
+        && isValidLegacyAchievementProgress(request.resource.data)
+        && isLegacyAchievementType(resource.data.achievementId);
       allow delete: if isAuthenticated()
         && resource.data.userId == request.auth.uid;
     }

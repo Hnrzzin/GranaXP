@@ -11,7 +11,8 @@ enum class RequirementType {
     TRANSACTION_COUNT,   // quantidade de transações registradas
     LESSON_COUNT,        // quantidade de lições concluídas
     GOAL_COUNT,          // quantidade de metas criadas
-    MONTHLY_SAVINGS      // valor poupado (receita - despesa) no mês corrente
+    MONTHLY_SAVINGS,     // valor poupado (receita - despesa) no mês corrente
+    MODULE_COMPLETION    // todas as lições do módulo indicado em referenceId
 }
 
 data class AchievementModel(
@@ -22,5 +23,6 @@ data class AchievementModel(
     var icon: String = "",
     var requirementValue: Int = 0,
     var requirementType: RequirementType = RequirementType.TRANSACTION_COUNT,
+    var referenceId: String? = null,
     var category: CategoriaConquista = CategoriaConquista.FINANCAS // era GERAL, que não existe mais
 )
