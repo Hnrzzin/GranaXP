@@ -6,6 +6,35 @@ import com.hnrzzin.granaxp.model.AchievementModel
 import com.hnrzzin.granaxp.model.AchievementProgressModel
 import kotlinx.coroutines.tasks.await
 
+private fun validStreakDefinition(data: Map<String, Any?>): Boolean {
+    val requirement = data["requirementValue"] as? Number ?: return false
+    val threshold = requirement.toInt()
+    return requirement.toDouble() == threshold.toDouble() && threshold in setOf(7, 15, 30) &&
+        data["category"] in setOf("EDUCACAO", "FINANCAS") &&
+        listOf("title", "description", "icon").all { data[it] is String } &&
+        (data["referenceId"] == null || data["referenceId"] is String)
+}
+
+internal fun <T> mapAchievementDocuments(
+    documents: List<T>,
+    fields: (T) -> Map<String, Any?>,
+    decode: (T) -> AchievementModel?,
+): List<AchievementModel> = documents.mapNotNull { document ->
+    try {
+        val data = fields(document)
+        if (data["requirementType"] == "STREAK" && !validStreakDefinition(data)) null
+        else decode(document)
+    } catch (_: Exception) {
+        null
+    }
+}
+
+internal suspend fun <T> readAchievementCatalog(
+    fetch: suspend () -> List<T>,
+    fields: (T) -> Map<String, Any?>,
+    decode: (T) -> AchievementModel?,
+): List<AchievementModel> = mapAchievementDocuments(fetch(), fields, decode)
+
 internal fun legacyAchievementProgressData(
     userId: String,
     achievementId: String,
@@ -24,25 +53,19 @@ class AchievementRepository {
     private val db = FirebaseFirestore.getInstance()
 
     suspend fun getAchievements(): List<AchievementModel> {
-        return try {
-            db.collection("achievements").get().await().toObjects(AchievementModel::class.java)
-        } catch (e: Exception) {
-            println("Error fetching achievements: ${e.message}")
-            emptyList()
-        }
+        return readAchievementCatalog(
+            fetch = { db.collection("achievements").get().await().documents },
+            fields = { it.data.orEmpty() },
+            decode = { it.toObject(AchievementModel::class.java) },
+        )
     }
 
     suspend fun getAchievementProgress(userId: String): List<AchievementProgressModel> {
-        return try {
-            db.collection("achievementProgress")
-                .whereEqualTo("userId", userId)
-                .get()
-                .await()
-                .toObjects(AchievementProgressModel::class.java)
-        } catch (e: Exception) {
-            println("Error fetching achievement progress: ${e.message}")
-            emptyList()
-        }
+        return db.collection("achievementProgress")
+            .whereEqualTo("userId", userId)
+            .get()
+            .await()
+            .toObjects(AchievementProgressModel::class.java)
     }
 
     suspend fun getUserAchievementProgress(userId: String): List<AchievementProgressModel> {

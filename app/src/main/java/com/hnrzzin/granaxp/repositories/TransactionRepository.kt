@@ -9,10 +9,16 @@ class TransactionRepository(private val userId: String) {
     private val db = FirebaseFirestore.getInstance()
     private val collection = db.collection("users").document(userId).collection("transactions")
 
+    private suspend fun readTransactions(): List<TransactionModel> {
+        val result = collection.get().await()
+        return result.mapNotNull { it.toObject(TransactionModel::class.java) }
+    }
+
+    suspend fun getTransactionCountForAchievement(): Int = readTransactions().size
+
     suspend fun getTransactions(): List<TransactionModel> {
         return try {
-            val result = collection.get().await()
-            result.mapNotNull { it.toObject(TransactionModel::class.java) }
+            readTransactions()
         } catch (e: Exception) {
             println("Falha ao buscar transações: $e")
             emptyList()

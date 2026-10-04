@@ -44,10 +44,16 @@ fun DailyMissionEntry(
 ) {
     when (state) {
         is DailyMissionUiState.Active, is DailyMissionUiState.Completed -> {
+            val streak = when (state) {
+                is DailyMissionUiState.Active -> state.streak
+                is DailyMissionUiState.Completed -> state.streak
+                else -> error("Estado de missão inesperado.")
+            }
             Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Missão diária", style = MaterialTheme.typography.titleMedium)
                     Text(if (state is DailyMissionUiState.Completed) "Concluída hoje" else "Responder missão de hoje")
+                    Text("🔥 Sequência: ${streak.currentStreak} dias · Recorde: ${streak.highestStreak} dias")
                 }
             }
         }
@@ -97,9 +103,13 @@ fun DailyMissionPage(
                 is DailyMissionUiState.Completed -> {
                     MissionContent(state.mission)
                     Text("Missão de hoje concluída.", style = MaterialTheme.typography.titleMedium)
+                    Text("🔥 Sequência: ${state.streak.currentStreak} dias · Recorde: ${state.streak.highestStreak} dias")
+                    if (state.xpEarned > 0) Text("+${state.xpEarned} XP pelo marco da sequência")
+                    if (state.leveledUp) Text("Você alcançou um novo nível!")
                 }
                 is DailyMissionUiState.Active -> {
                     MissionContent(state.mission)
+                    Text("🔥 Sequência: ${state.streak.currentStreak} dias · Recorde: ${state.streak.highestStreak} dias")
                     state.mission.orderedAlternatives().forEach { (id, label) ->
                         Row(
                             modifier = Modifier.fillMaxWidth().clickable(

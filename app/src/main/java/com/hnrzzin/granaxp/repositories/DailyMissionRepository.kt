@@ -4,6 +4,7 @@ import com.google.firebase.functions.FirebaseFunctions
 import com.hnrzzin.granaxp.model.ActivityType
 import com.hnrzzin.granaxp.model.DailyMissionModel
 import com.hnrzzin.granaxp.model.LessonSelectionMode
+import com.hnrzzin.granaxp.model.StreakModel
 import kotlinx.coroutines.tasks.await
 
 data class DailyMissionOpenResult(
@@ -11,12 +12,16 @@ data class DailyMissionOpenResult(
     val date: String? = null,
     val mission: DailyMissionModel? = null,
     val isCompleted: Boolean = false,
+    val streak: StreakModel? = null,
 )
 
 data class DailyMissionSubmissionResult(
     val correct: Boolean,
     val alreadyCompleted: Boolean,
     val feedback: String? = null,
+    val streak: StreakModel? = null,
+    val xpEarned: Int = 0,
+    val leveledUp: Boolean = false,
 )
 
 class DailyMissionRepository {
@@ -70,6 +75,34 @@ internal fun parseDailyMissionOpenResult(value: Any?): DailyMissionOpenResult {
         date = data["date"] as? String ?: error("Data da missão ausente."),
         mission = mission,
         isCompleted = data["isCompleted"] as? Boolean ?: error("Progresso da missão ausente."),
+        streak = parseStreakResult(data["streak"]),
+    )
+}
+
+internal fun parseStreakResult(value: Any?): StreakModel {
+    val data = value as? Map<*, *> ?: error("Streak ausente.")
+    fun count(key: String): Int {
+        val number = data[key] as? Number ?: error("Campo $key do streak ausente.")
+        val longValue = number.toLong()
+        check(number.toDouble() == longValue.toDouble() && longValue in 0..Int.MAX_VALUE.toLong()) {
+            "Campo $key do streak inválido."
+        }
+        return longValue.toInt()
+    }
+    val claimed = data["claimedMilestones"] as? List<*> ?: error("Marcos do streak ausentes.")
+    val claimedMilestones = claimed.map { value ->
+        val number = value as? Number ?: error("Marco do streak inválido.")
+        val longValue = number.toLong()
+        check(number.toDouble() == longValue.toDouble() && longValue in 0..Int.MAX_VALUE.toLong()) {
+            "Marco do streak inválido."
+        }
+        longValue.toInt()
+    }
+    return StreakModel(
+        currentStreak = count("currentStreak"),
+        highestStreak = count("highestStreak"),
+        lastMissionCompletedDate = data["lastMissionCompletedDate"] as? String,
+        claimedMilestones = claimedMilestones,
     )
 }
 
@@ -80,5 +113,11 @@ internal fun parseDailyMissionSubmissionResult(value: Any?): DailyMissionSubmiss
         correct = correct,
         alreadyCompleted = data["alreadyCompleted"] as? Boolean ?: error("Estado de conclusão ausente."),
         feedback = if (correct) null else data["feedback"] as? String ?: error("Feedback ausente."),
+        streak = if (correct) parseStreakResult(data["streak"]) else null,
+        xpEarned = if (correct) {
+            val number = data["xpEarned"] as? Number ?: error("XP ausente.")
+            number.toInt().also { check(it >= 0 && it.toDouble() == number.toDouble()) }
+        } else 0,
+        leveledUp = if (correct) data["leveledUp"] as? Boolean ?: error("Nível ausente.") else false,
     )
 }

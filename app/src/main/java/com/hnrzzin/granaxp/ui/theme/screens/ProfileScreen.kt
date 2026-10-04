@@ -49,6 +49,11 @@ fun ProfileScreen(
     val actionState by userViewModel.actionState.collectAsStateWithLifecycle()
     val achievementState by achievementViewModel.uiState.collectAsStateWithLifecycle()
 
+    LaunchedEffect(Unit) {
+        userViewModel.fetchUser()
+        achievementViewModel.fetchAchievements()
+    }
+
     var showEditNameDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmSheet by remember { mutableStateOf(false) }
     var achievementsExpanded by remember { mutableStateOf(true) }

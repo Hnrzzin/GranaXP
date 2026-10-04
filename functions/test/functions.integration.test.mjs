@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {after, before, beforeEach, describe, test} from "node:test";
 import {initializeApp as initializeAdminApp} from "firebase-admin/app";
 import {getAuth as getAdminAuth} from "firebase-admin/auth";
-import {getFirestore as getAdminFirestore, Timestamp} from "firebase-admin/firestore";
+import {getFirestore as getAdminFirestore, Query, Timestamp, Transaction} from "firebase-admin/firestore";
 import {initializeApp} from "firebase/app";
 import {
   connectAuthEmulator,
@@ -19,7 +19,8 @@ const FIRESTORE_HOST = process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8080";
 const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099";
 const FUNCTIONS_PORT = Number(process.env.FUNCTIONS_EMULATOR_PORT ?? 5001);
 
-const adminApp = initializeAdminApp({projectId: PROJECT_ID});
+process.env.GCLOUD_PROJECT = PROJECT_ID;
+const adminApp = initializeAdminApp();
 const adminDb = getAdminFirestore(adminApp);
 const adminAuth = getAdminAuth(adminApp);
 
@@ -136,7 +137,7 @@ describe("Daily Mission", () => {
     assert.equal((await open({deviceTimeMillis: OCT_2})).data.mission.id, "zeta");
   });
 
-  test("valida resposta no backend, mostra feedback no erro e persiste uma vez sem XP", async () => {
+  test("valida resposta no backend, mostra feedback e não concede XP básico", async () => {
     const {uid, email, functions} = await authenticatedClient();
     await seedUser(uid, email);
     await seedDailyMission("first", 1);
@@ -158,7 +159,7 @@ describe("Daily Mission", () => {
     assert.equal(again.alreadyCompleted, true);
     assert.equal((await progressRef.get()).data().completedAt.toMillis(), first.completedAt.toMillis());
     assert.equal((await adminDb.doc(`users/${uid}`).get()).data().xp, 0);
-    assert.equal((await adminDb.doc(`users/${uid}/learningStats/streak`).get()).exists, false);
+    assert.equal((await adminDb.doc(`users/${uid}/learningStats/streak`).get()).data().currentStreak, 1);
     const reopened = (await httpsCallable(functions, "openDailyMission")({deviceTimeMillis: OCT_1})).data;
     assert.equal(reopened.isCompleted, true);
   });
@@ -213,6 +214,243 @@ describe("Daily Mission", () => {
       (error) => error.code === "functions/unauthenticated");
     const signedIn = await authenticatedClient();
     await assert.rejects(httpsCallable(signedIn.functions, "openDailyMission")({deviceTimeMillis: "2026-10-01"}));
+  });
+});
+
+describe("Streak", () => {
+  const missionAt = (day) => OCT_1 + day * 86_400_000;
+  const missionDate = (day) => new Date(missionAt(day) - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const submit = (functions, day, selectedAnswerIds = ["a"]) =>
+    httpsCallable(functions, "submitDailyMissionAnswer")({
+      deviceTimeMillis: missionAt(day), expectedDate: missionDate(day),
+      expectedMissionId: "first", selectedAnswerIds,
+    });
+  const streakRef = (uid) => adminDb.doc(`users/${uid}/learningStats/streak`);
+
+  test("resposta errada não inicia streak e a primeira conclusão o inicia uma vez", async () => {
+    const {uid, email, functions} = await authenticatedClient();
+    await seedUser(uid, email);
+    await seedDailyMission("first", 1);
+    assert.equal((await submit(functions, 0, ["b"])).data.correct, false);
+    assert.equal((await streakRef(uid).get()).exists, false);
+    const first = (await submit(functions, 0)).data;
+    assert.equal(first.xpEarned, 0);
+    assert.equal(first.streak.currentStreak, 1);
+    assert.deepEqual((await streakRef(uid).get()).data(), {
+      currentStreak: 1, highestStreak: 1,
+      lastMissionCompletedDate: "2026-10-01", claimedMilestones: [],
+    });
+    const repeated = (await submit(functions, 0, ["b"])).data;
+    assert.equal(repeated.alreadyCompleted, true);
+    assert.equal(repeated.xpEarned, 0);
+    assert.equal((await streakRef(uid).get()).data().currentStreak, 1);
+    const reopened = (await httpsCallable(functions, "openDailyMission")({deviceTimeMillis: OCT_1})).data;
+    assert.equal(reopened.isCompleted, true);
+    assert.equal(reopened.streak.currentStreak, 1);
+  });
+
+  test("tolera três dias completos, reinicia após quatro e não recompensa marco repetido", async () => {
+    const {uid, email, functions} = await authenticatedClient();
+    await seedUser(uid, email);
+    await seedDailyMission("first", 1);
+    assert.equal((await submit(functions, 0)).data.streak.currentStreak, 1);
+    assert.equal((await submit(functions, 4)).data.streak.currentStreak, 2);
+    assert.equal((await submit(functions, 9)).data.streak.currentStreak, 1);
+    assert.equal((await submit(functions, 10)).data.streak.currentStreak, 2);
+    const milestone = (await submit(functions, 11)).data;
+    assert.equal(milestone.streak.currentStreak, 3);
+    assert.equal(milestone.xpEarned, 100);
+    assert.deepEqual(milestone.streak.claimedMilestones, [3]);
+    const openedAfterFourMissedDays = (await httpsCallable(functions, "openDailyMission")({
+      deviceTimeMillis: missionAt(16),
+    })).data;
+    assert.equal(openedAfterFourMissedDays.streak.currentStreak, 0);
+    assert.equal((await submit(functions, 16)).data.streak.currentStreak, 1);
+    await submit(functions, 17);
+    const repeatedMilestone = (await submit(functions, 18)).data;
+    assert.equal(repeatedMilestone.streak.currentStreak, 3);
+    assert.equal(repeatedMilestone.streak.highestStreak, 3);
+    assert.equal(repeatedMilestone.xpEarned, 0);
+    assert.deepEqual(repeatedMilestone.streak.claimedMilestones, [3]);
+    assert.equal((await adminDb.doc(`users/${uid}`).get()).data().level, 2);
+  });
+
+  test("concessão de marco é atômica sob chamadas concorrentes e isolada por usuário", async () => {
+    const owner = await authenticatedClient();
+    const other = await authenticatedClient();
+    await seedUser(owner.uid, owner.email);
+    await seedUser(other.uid, other.email);
+    await seedDailyMission("first", 1);
+    await submit(owner.functions, 0);
+    await submit(owner.functions, 1);
+    const results = await Promise.all(Array.from({length: 4}, () => submit(owner.functions, 2)));
+    assert.deepEqual(results.map((result) => result.data.xpEarned).sort((a, b) => a - b), [0, 0, 0, 100]);
+    assert.equal((await streakRef(owner.uid).get()).data().currentStreak, 3);
+    assert.deepEqual((await streakRef(owner.uid).get()).data().claimedMilestones, [3]);
+    assert.equal((await adminDb.doc(`users/${owner.uid}`).get()).data().level, 2);
+    assert.equal((await streakRef(other.uid).get()).exists, false);
+    assert.equal((await adminDb.doc(`users/${other.uid}`).get()).data().xp, 0);
+  });
+
+  test("falha da consulta STREAK não cancela missão, streak ou XP do marco", async () => {
+    const {uid, email, functions} = await authenticatedClient();
+    await seedUser(uid, email);
+    await seedDailyMission("first", 1);
+    await adminDb.doc("achievements/streak-7").set({
+      title: "Sete dias", description: "Sequência de missões", icon: "fire",
+      category: "EDUCACAO", requirementType: "STREAK", requirementValue: 7,
+    });
+    for (let day = 0; day < 6; day++) await submit(functions, day);
+
+    const isStreakCatalogQuery = (query) =>
+      query?._queryOptions?.collectionId === "achievements" &&
+      query._queryOptions.filters?.some((filter) => filter.value === "STREAK");
+    const transactionGet = Transaction.prototype.get;
+    const queryGet = Query.prototype.get;
+    Transaction.prototype.get = function(ref) {
+      if (isStreakCatalogQuery(ref)) return Promise.reject(new Error("Falha da consulta STREAK"));
+      return transactionGet.call(this, ref);
+    };
+    Query.prototype.get = function(...args) {
+      if (isStreakCatalogQuery(this)) return Promise.reject(new Error("Falha da consulta STREAK"));
+      return queryGet.apply(this, args);
+    };
+    try {
+      const {submitDailyMissionAnswer} = await import("../lib/index.js");
+      const result = await submitDailyMissionAnswer.run({
+        auth: {uid},
+        data: {deviceTimeMillis: missionAt(6), expectedDate: missionDate(6),
+          expectedMissionId: "first", selectedAnswerIds: ["a"]},
+      });
+      assert.equal(result.correct, true);
+      assert.equal(result.xpEarned, 100);
+      assert.equal(result.streak.currentStreak, 7);
+    } finally {
+      Transaction.prototype.get = transactionGet;
+      Query.prototype.get = queryGet;
+    }
+
+    const progress = (await adminDb.doc(`users/${uid}/dailyMissionProgress/${missionDate(6)}`).get()).data();
+    assert.equal(progress.isCompleted, true);
+    const streak = (await streakRef(uid).get()).data();
+    assert.equal(streak.currentStreak, 7);
+    assert.equal(streak.highestStreak, 7);
+    assert.equal(streak.lastMissionCompletedDate, missionDate(6));
+    assert.deepEqual(streak.claimedMilestones, [3, 7]);
+    const user = (await adminDb.doc(`users/${uid}`).get()).data();
+    assert.deepEqual({level: user.level, xp: user.xp, nextLevelXp: user.nextLevelXp},
+      {level: 2, xp: 100, nextLevelXp: 120});
+    const badgeRef = adminDb.doc(`users/${uid}/achievementProgress/streak-7`);
+    const pendingBadge = (await badgeRef.get()).data();
+    assert.equal(pendingBadge.isUnlocked, false);
+    assert.equal(pendingBadge.unlockedAt, undefined);
+
+    const beforeUnlock = Date.now();
+    assert.equal((await submit(functions, 7)).data.xpEarned, 0);
+    const badge = (await badgeRef.get()).data();
+    assert.equal(badge.isUnlocked, true);
+    assert.ok(badge.unlockedAt.toMillis() >= beforeUnlock);
+    assert.deepEqual((await streakRef(uid).get()).data().claimedMilestones, [3, 7]);
+  });
+
+  test("catálogo STREAK ausente ou inválido não perde missão nem XP e conclusão futura reconhece highestStreak", async () => {
+    const {uid, email, functions} = await authenticatedClient();
+    await seedUser(uid, email);
+    await seedDailyMission("first", 1);
+    for (let day = 0; day < 7; day++) await submit(functions, day);
+    assert.equal((await streakRef(uid).get()).data().highestStreak, 7);
+    assert.deepEqual((await streakRef(uid).get()).data().claimedMilestones, [3, 7]);
+    assert.equal((await adminDb.doc(`users/${uid}/achievementProgress/streak-7`).get()).exists, false);
+    await adminDb.doc("achievements/streak-7").set({
+      title: "Sete dias", description: "Persistência", icon: "fire", category: "EDUCACAO",
+      requirementType: "STREAK", requirementValue: "7",
+    });
+    assert.equal((await submit(functions, 7)).data.correct, true);
+    assert.equal((await adminDb.doc(`users/${uid}/achievementProgress/streak-7`).get()).exists, false);
+    await adminDb.doc("achievements/streak-7").update({requirementValue: 7});
+    const before = Date.now();
+    const reconciled = (await submit(functions, 13)).data;
+    assert.equal(reconciled.xpEarned, 0);
+    assert.equal(reconciled.streak.currentStreak, 1);
+    assert.equal(reconciled.streak.highestStreak, 8);
+    const badge = (await adminDb.doc(`users/${uid}/achievementProgress/streak-7`).get()).data();
+    assert.equal(badge.isUnlocked, true);
+    assert.equal(badge.currentProgress, 7);
+    assert.ok(badge.unlockedAt.toMillis() >= before);
+    const firstUnlock = badge.unlockedAt.toMillis();
+    await submit(functions, 14);
+    assert.equal((await adminDb.doc(`users/${uid}/achievementProgress/streak-7`).get()).data()
+      .unlockedAt.toMillis(), firstUnlock);
+  });
+
+  test("cinco marcos pagam no máximo 500 XP e badges 7 15 30 permanecem desbloqueados", async () => {
+    const {uid, email, functions} = await authenticatedClient();
+    await seedUser(uid, email);
+    await seedDailyMission("first", 1);
+    for (const threshold of [7, 15, 30]) {
+      await adminDb.doc(`achievements/streak-${threshold}`).set({
+        title: `${threshold} dias`, description: "Sequência de missões", icon: "fire",
+        category: "EDUCACAO", requirementType: "STREAK", requirementValue: threshold,
+      });
+    }
+    let earned = 0;
+    for (let day = 0; day < 30; day++) earned += (await submit(functions, day)).data.xpEarned;
+    assert.equal(earned, 500);
+    const streak = (await streakRef(uid).get()).data();
+    assert.equal(streak.currentStreak, 30);
+    assert.equal(streak.highestStreak, 30);
+    assert.deepEqual(streak.claimedMilestones, [3, 7, 10, 15, 30]);
+    const firstUnlocks = new Map();
+    for (const threshold of [7, 15, 30]) {
+      const badge = (await adminDb.doc(`users/${uid}/achievementProgress/streak-${threshold}`).get()).data();
+      assert.equal(badge.achievementId, `streak-${threshold}`);
+      assert.equal(badge.currentProgress, threshold);
+      assert.equal(badge.isUnlocked, true);
+      assert.ok(badge.unlockedAt instanceof Timestamp);
+      firstUnlocks.set(threshold, badge.unlockedAt.toMillis());
+    }
+    assert.equal((await adminDb.collection(`users/${uid}/achievementProgress`).get()).size, 3);
+    assert.equal((await submit(functions, 30)).data.xpEarned, 0);
+    for (const threshold of [7, 15, 30]) {
+      const badge = (await adminDb.doc(`users/${uid}/achievementProgress/streak-${threshold}`).get()).data();
+      assert.equal(badge.unlockedAt.toMillis(), firstUnlocks.get(threshold));
+    }
+    const user = (await adminDb.doc(`users/${uid}`).get()).data();
+    assert.deepEqual({level: user.level, xp: user.xp, nextLevelXp: user.nextLevelXp},
+      {level: 4, xp: 136, nextLevelXp: 172});
+  });
+
+  test("concorrência no desbloqueio cria somente um badge e preserva unlockedAt", async () => {
+    const {uid, email, functions} = await authenticatedClient();
+    await seedUser(uid, email);
+    await seedDailyMission("first", 1);
+    await adminDb.doc("achievements/streak-7").set({
+      title: "Sete dias", description: "Sequência de missões", icon: "fire",
+      category: "EDUCACAO", requirementType: "STREAK", requirementValue: 7,
+    });
+    for (let day = 0; day < 6; day++) await submit(functions, day);
+    const results = await Promise.all(Array.from({length: 4}, () => submit(functions, 6)));
+    assert.deepEqual(results.map((result) => result.data.xpEarned).sort((a, b) => a - b), [0, 0, 0, 100]);
+    const badgeRef = adminDb.doc(`users/${uid}/achievementProgress/streak-7`);
+    const firstUnlock = (await badgeRef.get()).data().unlockedAt.toMillis();
+    await submit(functions, 7);
+    assert.equal((await badgeRef.get()).data().unlockedAt.toMillis(), firstUnlock);
+    assert.equal((await adminDb.collection(`users/${uid}/achievementProgress`).get()).size, 1);
+  });
+
+  test("progresso diário antigo não é recompensado retroativamente e data anterior não avança streak", async () => {
+    const {uid, email, functions} = await authenticatedClient();
+    await seedUser(uid, email);
+    await seedDailyMission("first", 1);
+    await adminDb.doc(`users/${uid}/dailyMissionProgress/2026-10-01`).set({
+      missionId: "first", date: "2026-10-01", isCompleted: true, completedAt: Timestamp.now(),
+    });
+    assert.equal((await submit(functions, 0)).data.alreadyCompleted, true);
+    assert.equal((await streakRef(uid).get()).exists, false);
+    assert.equal((await submit(functions, 1)).data.streak.currentStreak, 1);
+    await submit(functions, 3);
+    await assert.rejects(submit(functions, 2), (error) => error.code === "functions/failed-precondition");
+    assert.equal((await streakRef(uid).get()).data().currentStreak, 2);
   });
 });
 
@@ -612,6 +850,10 @@ describe("deleteAccount", () => {
     await adminDb.doc(`users/${owner.uid}/dailyMissionProgress/2026-10-01`).set({
       missionId: "mission-1", date: "2026-10-01", isCompleted: true, completedAt: Timestamp.now(),
     });
+    await adminDb.doc(`users/${owner.uid}/learningStats/streak`).set({
+      currentStreak: 7, highestStreak: 7, lastMissionCompletedDate: "2026-10-07",
+      claimedMilestones: [3, 7],
+    });
     await adminDb.doc(`users/${owner.uid}/future/private/nested/doc-1`).set({secret: true});
     await adminDb.doc("achievementProgress/owner-progress").set({userId: owner.uid, achievementId: "a"});
     await adminDb.doc("achievementProgress/other-progress").set({userId: other.uid, achievementId: "a"});
@@ -622,6 +864,7 @@ describe("deleteAccount", () => {
     assert.equal((await adminDb.doc(`users/${owner.uid}/goals/goal-1`).get()).exists, false);
     assert.equal((await adminDb.doc(`users/${owner.uid}/achievementProgress/badge-a`).get()).exists, false);
     assert.equal((await adminDb.doc(`users/${owner.uid}/dailyMissionProgress/2026-10-01`).get()).exists, false);
+    assert.equal((await adminDb.doc(`users/${owner.uid}/learningStats/streak`).get()).exists, false);
     assert.equal((await adminDb.doc(`users/${owner.uid}/future/private/nested/doc-1`).get()).exists, false);
     assert.equal((await adminDb.doc("achievementProgress/owner-progress").get()).exists, false);
     assert.equal((await adminDb.doc(`users/${other.uid}`).get()).exists, true);

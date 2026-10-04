@@ -2,6 +2,7 @@ package com.hnrzzin.granaxp.viewmodel
 
 import com.hnrzzin.granaxp.model.DailyMissionModel
 import com.hnrzzin.granaxp.model.LessonSelectionMode
+import com.hnrzzin.granaxp.model.StreakModel
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
@@ -40,10 +41,17 @@ sealed interface DailyMissionUiState {
     data class Active(
         val date: String,
         val mission: DailyMissionModel,
+        val streak: StreakModel,
         val selectedAnswerIds: Set<String> = emptySet(),
         val feedback: String? = null,
         val isSubmitting: Boolean = false,
         val error: String? = null,
     ) : DailyMissionUiState
-    data class Completed(val date: String, val mission: DailyMissionModel) : DailyMissionUiState
+    data class Completed(
+        val date: String,
+        val mission: DailyMissionModel,
+        val streak: StreakModel,
+        val xpEarned: Int = 0,
+        val leveledUp: Boolean = false,
+    ) : DailyMissionUiState
 }

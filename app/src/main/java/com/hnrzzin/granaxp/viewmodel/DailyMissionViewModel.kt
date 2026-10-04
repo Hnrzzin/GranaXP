@@ -43,8 +43,9 @@ class DailyMissionViewModel : ViewModel() {
                 } else {
                     val mission = checkNotNull(result.mission)
                     val date = checkNotNull(result.date)
-                    if (result.isCompleted) DailyMissionUiState.Completed(date, mission)
-                    else DailyMissionUiState.Active(date, mission)
+                    val streak = checkNotNull(result.streak)
+                    if (result.isCompleted) DailyMissionUiState.Completed(date, mission, streak)
+                    else DailyMissionUiState.Active(date, mission, streak)
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -83,7 +84,10 @@ class DailyMissionViewModel : ViewModel() {
                 val current = _uiState.value as? DailyMissionUiState.Active ?: return@launch
                 if (current.date != active.date || current.mission.id != active.mission.id) return@launch
                 _uiState.value = if (result.correct) {
-                    DailyMissionUiState.Completed(active.date, active.mission)
+                    DailyMissionUiState.Completed(
+                        active.date, active.mission, checkNotNull(result.streak),
+                        xpEarned = result.xpEarned, leveledUp = result.leveledUp,
+                    )
                 } else {
                     current.copy(
                         selectedAnswerIds = emptySet(), feedback = result.feedback,

@@ -236,11 +236,13 @@ class LessonViewModel(private val userId: String) : ViewModel() {
 
     // Regra #4: conquistas de categoria EDUCACAO baseadas em completedLessonsCount.
     private suspend fun checkEducationAchievements() {
-        val completedCount = repository.getLessonProgress().count { it.isCompleted }
-        val achievements = achievementRepository.getAchievements()
-            .filter { it.category == com.hnrzzin.granaxp.model.CategoriaConquista.EDUCACAO }
-            .filter { it.requirementType == RequirementType.LESSON_COUNT }
-        val progressList = achievementRepository.getAchievementProgress(userId)
+        val (completedCount, achievements, progressList) = loadLegacyAchievementCheckInputs(
+            loadCount = { repository.getLessonProgress().count { it.isCompleted } },
+            loadCatalog = { achievementRepository.getAchievements() },
+            loadProgress = { achievementRepository.getAchievementProgress(userId) },
+            requirementType = RequirementType.LESSON_COUNT,
+            category = com.hnrzzin.granaxp.model.CategoriaConquista.EDUCACAO,
+        )
 
         achievements.forEach { achievement ->
             val progress = progressList.find { it.achievementId == achievement.id }

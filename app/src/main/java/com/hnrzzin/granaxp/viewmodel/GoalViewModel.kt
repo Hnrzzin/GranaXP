@@ -132,10 +132,12 @@ class GoalViewModel(private val userId: String) : ViewModel() {
         }
     }
     private suspend fun checkGoalAchievements() {
-        val goalCount = repository.getGoals().size
-        val achievements = achievementRepository.getAchievements()
-            .filter { it.requirementType == RequirementType.GOAL_COUNT }
-        val progressList = achievementRepository.getAchievementProgress(userId)
+        val (goalCount, achievements, progressList) = loadLegacyAchievementCheckInputs(
+            loadCount = { repository.getGoals().size },
+            loadCatalog = { achievementRepository.getAchievements() },
+            loadProgress = { achievementRepository.getAchievementProgress(userId) },
+            requirementType = RequirementType.GOAL_COUNT,
+        )
 
         achievements.forEach { achievement ->
             val progress = progressList.find { it.achievementId == achievement.id }

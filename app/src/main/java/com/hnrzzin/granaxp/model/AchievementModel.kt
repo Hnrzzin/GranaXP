@@ -12,7 +12,8 @@ enum class RequirementType {
     LESSON_COUNT,        // quantidade de lições concluídas
     GOAL_COUNT,          // quantidade de metas criadas
     MONTHLY_SAVINGS,     // valor poupado (receita - despesa) no mês corrente
-    MODULE_COMPLETION    // todas as lições do módulo indicado em referenceId
+    MODULE_COMPLETION,   // todas as lições do módulo indicado em referenceId
+    STREAK               // maior sequência histórica de missões diárias
 }
 
 data class AchievementModel(

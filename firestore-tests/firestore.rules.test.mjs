@@ -452,6 +452,17 @@ describe("achievementProgress legado", () => {
       currentProgress: 1, isUnlocked: true,
     }));
   });
+
+  test("não aceita conquista STREAK forjada no caminho legado", async () => {
+    await seed("achievements/streak-7", {
+      title: "Sete dias", category: "EDUCACAO", requirementType: "STREAK", requirementValue: 7,
+    });
+    const dbA = userDb(USER_A);
+    await assertFails(setDoc(doc(dbA, "achievementProgress/forged-streak"), {
+      userId: USER_A, achievementId: "streak-7", currentProgress: 7,
+      isUnlocked: true, lastUpdated: Timestamp.now(),
+    }));
+  });
 });
 
 describe("caminhos planejados da Fase 1", () => {
@@ -579,6 +590,17 @@ describe("caminhos planejados da Fase 1", () => {
       doc(dbA, `users/${USER_A}/learningStats/streak`),
       { currentStreak: 30 },
     ));
+    await assertFails(updateDoc(
+      doc(dbA, `users/${USER_A}/learningStats/streak`),
+      { claimedMilestones: [3, 7, 10, 15, 30] },
+    ));
+    await assertFails(getDoc(doc(dbB, `users/${USER_A}/learningStats/streak`)));
+    await assertFails(getDoc(doc(testEnv.unauthenticatedContext().firestore(),
+      `users/${USER_A}/learningStats/streak`)));
+    await assertFails(setDoc(doc(dbB, `users/${USER_A}/learningStats/streak`), {
+      currentStreak: 30, highestStreak: 30, lastMissionCompletedDate: "2026-10-30",
+      claimedMilestones: [3, 7, 10, 15, 30],
+    }));
   });
 });
 

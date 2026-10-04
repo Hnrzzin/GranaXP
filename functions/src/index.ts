@@ -21,6 +21,8 @@ const GOAL_COMPLETION_XP = 200;
 const MAX_MONEY = 1_000_000_000_000;
 const DAILY_MISSION_BASE_UTC = Date.UTC(2026, 9, 1);
 const MILLIS_PER_DAY = 86_400_000;
+const STREAK_MILESTONES = [3, 7, 10, 15, 30];
+const STREAK_ACHIEVEMENTS = [7, 15, 30];
 const missionDateFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit",
 });
@@ -504,6 +506,108 @@ function missionDayFromDeviceTime(data: Record<string, unknown>): {date: string;
   return {date, daysSinceBase: (Date.UTC(year, month - 1, day) - DAILY_MISSION_BASE_UTC) / MILLIS_PER_DAY};
 }
 
+type Streak = {
+  currentStreak: number;
+  highestStreak: number;
+  lastMissionCompletedDate: string | null;
+  claimedMilestones: number[];
+};
+
+function streakDayNumber(date: string): number {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new HttpsError("failed-precondition", "Data do streak inválida.");
+  const [year, month, day] = date.split("-").map(Number);
+  const millis = Date.UTC(year, month - 1, day);
+  if (new Date(millis).toISOString().slice(0, 10) !== date || millis < DAILY_MISSION_BASE_UTC) {
+    throw new HttpsError("failed-precondition", "Data do streak inválida.");
+  }
+  return (millis - DAILY_MISSION_BASE_UTC) / MILLIS_PER_DAY;
+}
+
+function streakFromDocument(document: DocumentSnapshot): Streak {
+  if (!document.exists) return {
+    currentStreak: 0, highestStreak: 0, lastMissionCompletedDate: null, claimedMilestones: [],
+  };
+  const data = document.data()!;
+  const currentStreak = data.currentStreak;
+  const highestStreak = data.highestStreak;
+  const lastMissionCompletedDate = data.lastMissionCompletedDate;
+  const claimedMilestones = data.claimedMilestones;
+  if (!Number.isSafeInteger(currentStreak) || currentStreak < 1 ||
+      !Number.isSafeInteger(highestStreak) || highestStreak < currentStreak ||
+      typeof lastMissionCompletedDate !== "string" ||
+      !Array.isArray(claimedMilestones) ||
+      claimedMilestones.some((value: unknown) => !STREAK_MILESTONES.includes(value as number)) ||
+      new Set(claimedMilestones).size !== claimedMilestones.length ||
+      STREAK_MILESTONES.some((value) => value <= highestStreak && !claimedMilestones.includes(value))) {
+    throw new HttpsError("failed-precondition", "Progresso de streak inválido.");
+  }
+  streakDayNumber(lastMissionCompletedDate);
+  return {currentStreak, highestStreak, lastMissionCompletedDate, claimedMilestones};
+}
+
+function visibleStreak(streak: Streak, daysSinceBase: number): Streak {
+  if (streak.lastMissionCompletedDate === null) return streak;
+  const daysSinceLast = daysSinceBase - streakDayNumber(streak.lastMissionCompletedDate);
+  return daysSinceLast >= 5 ? {...streak, currentStreak: 0} : streak;
+}
+
+function completedStreak(streak: Streak, date: string, daysSinceBase: number): {streak: Streak; xpEarned: number} {
+  const daysSinceLast = streak.lastMissionCompletedDate === null ? null :
+    daysSinceBase - streakDayNumber(streak.lastMissionCompletedDate);
+  if (daysSinceLast !== null && daysSinceLast <= 0) {
+    throw new HttpsError("failed-precondition", "A data é anterior à última conclusão do streak.");
+  }
+  const currentStreak = daysSinceLast === null || daysSinceLast >= 5 ? 1 : streak.currentStreak + 1;
+  const highestStreak = Math.max(streak.highestStreak, currentStreak);
+  const milestone = STREAK_MILESTONES.includes(currentStreak) &&
+    !streak.claimedMilestones.includes(currentStreak) ? currentStreak : null;
+  return {
+    streak: {
+      currentStreak, highestStreak, lastMissionCompletedDate: date,
+      claimedMilestones: milestone === null ? streak.claimedMilestones :
+        [...streak.claimedMilestones, milestone].sort((left, right) => left - right),
+    },
+    xpEarned: milestone === null ? 0 : 100,
+  };
+}
+
+function validStreakAchievement(data: DocumentData): boolean {
+  return data.requirementType === "STREAK" && STREAK_ACHIEVEMENTS.includes(data.requirementValue) &&
+    ["EDUCACAO", "FINANCAS"].includes(data.category) &&
+    [data.title, data.description, data.icon].every((value) => typeof value === "string") &&
+    (data.referenceId == null || typeof data.referenceId === "string");
+}
+
+async function grantStreakAchievements(uid: string): Promise<void> {
+  try {
+    await db.runTransaction(async (transaction) => {
+      const streakDocument = await transaction.get(db.doc(`users/${uid}/learningStats/streak`));
+      const streak = streakFromDocument(streakDocument);
+      const definitions = await transaction.get(db.collection("achievements")
+        .where("requirementType", "==", "STREAK"));
+      const validDefinitions = definitions.docs.filter((definition) => validStreakAchievement(definition.data()));
+      const achievementProgress = await Promise.all(validDefinitions.map((definition) =>
+        transaction.get(db.doc(`users/${uid}/achievementProgress/${definition.id}`))));
+      validDefinitions.forEach((definition, index) => {
+        const previous = achievementProgress[index];
+        const requirement = definition.get("requirementValue") as number;
+        const unlocked = streak.highestStreak >= requirement;
+        const updates: DocumentData = {
+          achievementId: definition.id,
+          currentProgress: Math.min(streak.highestStreak, requirement),
+          isUnlocked: unlocked || previous.get("isUnlocked") === true,
+        };
+        if (unlocked && previous.get("isUnlocked") !== true && !previous.get("unlockedAt")) {
+          updates.unlockedAt = FieldValue.serverTimestamp();
+        }
+        transaction.set(previous.ref, updates, {merge: true});
+      });
+    });
+  } catch (error) {
+    console.error("Não foi possível atualizar conquistas STREAK; a missão foi preservada.", error);
+  }
+}
+
 function dailyMissionForDate(documents: QueryDocumentSnapshot[], daysSinceBase: number): QueryDocumentSnapshot | null {
   if (daysSinceBase < 0 || documents.length === 0) return null;
   for (const document of documents) {
@@ -540,7 +644,10 @@ export const openDailyMission = onCall(callableOptions, async (request) => {
     const selected = dailyMissionForDate(catalog.docs, daysSinceBase);
     if (!selected) return {available: false};
     const {mission, activity} = validatedDailyMission(selected);
-    const progress = await db.doc(`users/${uid}/dailyMissionProgress/${date}`).get();
+    const [progress, streakDocument] = await db.runTransaction(async (transaction) => Promise.all([
+      transaction.get(db.doc(`users/${uid}/dailyMissionProgress/${date}`)),
+      transaction.get(db.doc(`users/${uid}/learningStats/streak`)),
+    ]));
     if (progress.exists && progress.get("missionId") !== selected.id) {
       throw new HttpsError("failed-precondition", "Missão do dia mudou; verifique o catálogo.");
     }
@@ -555,6 +662,7 @@ export const openDailyMission = onCall(callableOptions, async (request) => {
       },
       isCompleted: progress.get("isCompleted") === true,
       completedAt: progress.get("completedAt") ?? null,
+      streak: visibleStreak(streakFromDocument(streakDocument), daysSinceBase),
     };
   } catch (error) {
     return wrapUnexpected(error);
@@ -575,7 +683,7 @@ export const submitDailyMissionAnswer = onCall(callableOptions, async (request) 
     throw new HttpsError("invalid-argument", "Alternativas selecionadas inválidas.");
   }
   try {
-    return await db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
       const catalog = await transaction.get(db.collection("dailyMissions"));
       const selected = dailyMissionForDate(catalog.docs, daysSinceBase);
       if (!selected) throw new HttpsError("failed-precondition", "Missão indisponível.");
@@ -589,7 +697,9 @@ export const submitDailyMissionAnswer = onCall(callableOptions, async (request) 
         throw new HttpsError("failed-precondition", "Missão do dia mudou; verifique o catálogo.");
       }
       if (progress.get("isCompleted") === true) {
-        return {correct: true, alreadyCompleted: true};
+        const streakDocument = await transaction.get(db.doc(`users/${uid}/learningStats/streak`));
+        return {correct: true, alreadyCompleted: true, xpEarned: 0, leveledUp: false,
+          streak: visibleStreak(streakFromDocument(streakDocument), daysSinceBase)};
       }
       if (selectedAnswers.some((id) => !Object.hasOwn(activity.alternatives, id)) ||
           (activity.answers.length === 1 && selectedAnswers.length !== 1)) {
@@ -598,13 +708,27 @@ export const submitDailyMissionAnswer = onCall(callableOptions, async (request) 
       const correct = selectedAnswers.length === activity.answers.length &&
         selectedAnswers.every((id) => activity.answers.includes(id));
       if (!correct) return {correct: false, alreadyCompleted: false, feedback: activity.feedback};
+      const streakRef = db.doc(`users/${uid}/learningStats/streak`);
+      const userRef = db.doc(`users/${uid}`);
+      const [streakDocument, userDocument] = await Promise.all([
+        transaction.get(streakRef), transaction.get(userRef),
+      ]);
+      if (!userDocument.exists) throw new HttpsError("failed-precondition", "Perfil não encontrado.");
+      const {streak, xpEarned} = completedStreak(streakFromDocument(streakDocument), date, daysSinceBase);
+      const xp = xpEarned > 0 ? applyXp(userDocument.data()!, xpEarned) : null;
       const completed = {
         missionId: selected.id, date, isCompleted: true, completedAt: FieldValue.serverTimestamp(),
       };
       if (progress.exists) transaction.update(progressRef, completed);
       else transaction.create(progressRef, completed);
-      return {correct: true, alreadyCompleted: false};
+      if (streakDocument.exists) transaction.update(streakRef, streak);
+      else transaction.create(streakRef, streak);
+      if (xp) transaction.update(userRef, xp.updates);
+      return {correct: true, alreadyCompleted: false, xpEarned,
+        leveledUp: xp?.leveledUp ?? false, streak};
     });
+    if (result.correct && !result.alreadyCompleted) await grantStreakAchievements(uid);
+    return result;
   } catch (error) {
     return wrapUnexpected(error);
   }

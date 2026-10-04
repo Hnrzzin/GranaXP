@@ -126,12 +126,13 @@ class TransactionViewModel(private val userId: String) : ViewModel() {
      * vindo da UI — mesmo padrão de LessonViewModel.checkEducationAchievements().
      */
     private suspend fun checkFinancialAchievements() {
-        val transactionCount = repository.getTransactions().size
-
-        val achievements = achievementRepository.getAchievements()
-            .filter { it.category == CategoriaConquista.FINANCAS }
-            .filter { it.requirementType == RequirementType.TRANSACTION_COUNT }
-        val progressList = achievementRepository.getAchievementProgress(userId)
+        val (transactionCount, achievements, progressList) = loadLegacyAchievementCheckInputs(
+            loadCount = { repository.getTransactionCountForAchievement() },
+            loadCatalog = { achievementRepository.getAchievements() },
+            loadProgress = { achievementRepository.getAchievementProgress(userId) },
+            requirementType = RequirementType.TRANSACTION_COUNT,
+            category = CategoriaConquista.FINANCAS,
+        )
 
         achievements.forEach { achievement ->
             val progress = progressList.find { it.achievementId == achievement.id }

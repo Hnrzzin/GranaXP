@@ -302,13 +302,13 @@ service cloud.firestore {
 
       match /achievementProgress/{achievementId} {
         allow read: if isOwner(uid);
-        // MODULE_COMPLETION is granted by completeLesson. The new path is
-        // backend-owned so the Android client cannot forge an unlock.
+        // MODULE_COMPLETION and STREAK are granted by backend transactions.
+        // The Android client cannot forge an unlock in this path.
         allow write: if false;
       }
 
-      // Daily Mission é concluída pela callable. Streak permanece reservado
-      // para o bloco posterior; clientes só leem o próprio estado.
+      // Missão diária, streak, marcos e XP são concluídos pela callable.
+      // O cliente pode ler somente o próprio estado.
       match /dailyMissionProgress/{dateId} {
         allow read: if isOwner(uid);
         allow write: if false;

@@ -163,6 +163,12 @@ fun LearnScreen(
             userViewModel.fetchUser()
         }
     }
+
+    LaunchedEffect(dailyMissionState) {
+        if (((dailyMissionState as? DailyMissionUiState.Completed)?.xpEarned ?: 0) > 0) {
+            userViewModel.fetchUser()
+        }
+    }
 }
 
 @Composable

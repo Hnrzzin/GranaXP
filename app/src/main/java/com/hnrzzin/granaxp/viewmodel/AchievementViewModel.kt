@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.hnrzzin.granaxp.model.AchievementModel
 import com.hnrzzin.granaxp.model.AchievementProgressModel
+import com.hnrzzin.granaxp.model.CategoriaConquista
 import com.hnrzzin.granaxp.model.RequirementType
 import com.hnrzzin.granaxp.repositories.AchievementRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,10 +40,37 @@ internal fun combineAchievements(
     }
 }
 
+internal suspend fun loadLegacyAchievementCheckInputs(
+    loadCount: suspend () -> Int,
+    loadCatalog: suspend () -> List<AchievementModel>,
+    loadProgress: suspend () -> List<AchievementProgressModel>,
+    requirementType: RequirementType,
+    category: CategoriaConquista? = null,
+): Triple<Int, List<AchievementModel>, List<AchievementProgressModel>> {
+    val count = loadCount()
+    val achievements = loadCatalog().filter { achievement ->
+        achievement.requirementType == requirementType &&
+            (category == null || achievement.category == category)
+    }
+    return Triple(count, achievements, loadProgress())
+}
+
 sealed class AchievementUiState {
     object Loading : AchievementUiState()
     data class Success(val achievements: List<AchievementWithProgress>) : AchievementUiState()
     data class Error(val message: String) : AchievementUiState()
+}
+
+internal suspend fun loadAchievementUiState(
+    loadCatalog: suspend () -> List<AchievementModel>,
+    loadCanonicalProgress: suspend () -> List<AchievementProgressModel>,
+    loadLegacyProgress: suspend () -> List<AchievementProgressModel>,
+): AchievementUiState = try {
+    AchievementUiState.Success(
+        combineAchievements(loadCatalog(), loadCanonicalProgress(), loadLegacyProgress()),
+    )
+} catch (e: Exception) {
+    AchievementUiState.Error("Falha ao buscar conquistas: ${e.message}")
 }
 
 /**
@@ -52,7 +80,8 @@ sealed class AchievementUiState {
  * - TransactionViewModel.checkFinancialAchievements() (categoria FINANCAS)
  * - LessonViewModel.checkEducationAchievements() (categoria EDUCACAO)
  *
- * MODULE_COMPLETION é concedida pelo backend em completeLesson.
+ * MODULE_COMPLETION e STREAK são concedidas pelo backend em completeLesson
+ * e submitDailyMissionAnswer, respectivamente.
  */
 class AchievementViewModel(private val userId: String) : ViewModel() {
 
@@ -68,16 +97,11 @@ class AchievementViewModel(private val userId: String) : ViewModel() {
     fun fetchAchievements() {
         viewModelScope.launch {
             _uiState.value = AchievementUiState.Loading
-            try {
-                val achievements = repository.getAchievements()
-                val canonicalProgress = repository.getUserAchievementProgress(userId)
-                val legacyProgress = repository.getAchievementProgress(userId)
-                _uiState.value = AchievementUiState.Success(
-                    combineAchievements(achievements, canonicalProgress, legacyProgress),
-                )
-            } catch (e: Exception) {
-                _uiState.value = AchievementUiState.Error("Falha ao buscar conquistas: ${e.message}")
-            }
+            _uiState.value = loadAchievementUiState(
+                loadCatalog = { repository.getAchievements() },
+                loadCanonicalProgress = { repository.getUserAchievementProgress(userId) },
+                loadLegacyProgress = { repository.getAchievementProgress(userId) },
+            )
         }
     }
 
