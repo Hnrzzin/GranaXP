@@ -1,6 +1,7 @@
 package com.hnrzzin.granaxp.repositories
 
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Source
 import com.google.firebase.functions.FirebaseFunctions
 import com.hnrzzin.granaxp.model.LessonModel
 import com.hnrzzin.granaxp.model.LessonProgressModel
@@ -13,14 +14,10 @@ class LessonRepository(private val userId: String) {
     private val functions: FirebaseFunctions = FirebaseFunctionsProvider.instance
 
     suspend fun getLessons(): List<LessonModel> {
-        return try {
-            val result = lessonsCollection.orderBy("order").get().await()
-            result.mapNotNull { it.toObject(LessonModel::class.java) }
-                .sortedWith(compareBy<LessonModel> { it.order }.thenBy { it.id })
-        } catch (e: Exception) {
-            println("Falha ao buscar lições: $e")
-            emptyList()
-        }
+        // Only a server response can confirm that the catalog is really empty.
+        val result = lessonsCollection.orderBy("order").get(Source.SERVER).await()
+        return result.mapNotNull { it.toObject(LessonModel::class.java) }
+            .sortedWith(compareBy<LessonModel> { it.order }.thenBy { it.id })
     }
 
     suspend fun getLessonsByModule(moduleId: String): List<LessonModel> {

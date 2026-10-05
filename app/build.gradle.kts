@@ -4,6 +4,9 @@ plugins {
     alias(libs.plugins.google.gms.google.services)
 }
 
+val useFirebaseEmulators = providers.gradleProperty("useFirebaseEmulators")
+    .orNull?.toBooleanStrict() ?: false
+
 android {
     namespace = "com.hnrzzin.granaxp"
     compileSdk = 37
@@ -15,11 +18,17 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField(
-            "boolean",
-            "USE_FIREBASE_EMULATORS",
-            (providers.gradleProperty("useFirebaseEmulators").orNull?.toBoolean() ?: false).toString(),
-        )
+        buildConfigField("boolean", "USE_FIREBASE_EMULATORS", "false")
+        manifestPlaceholders["firebaseInitProviderEnabled"] = true
+        manifestPlaceholders["firebaseEmulatorCleartext"] = false
+    }
+
+    buildTypes {
+        debug {
+            buildConfigField("boolean", "USE_FIREBASE_EMULATORS", useFirebaseEmulators.toString())
+            manifestPlaceholders["firebaseInitProviderEnabled"] = !useFirebaseEmulators
+            manifestPlaceholders["firebaseEmulatorCleartext"] = useFirebaseEmulators
+        }
     }
 
     buildFeatures {
@@ -70,6 +79,7 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.espresso.core)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
