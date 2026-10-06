@@ -18,7 +18,6 @@ class LessonLearningStateTest {
             modules = emptyList(),
             allLessons = listOf(legacyLesson),
             progressList = emptyList(),
-            lessonsByModule = emptyMap(),
         )
 
         assertTrue(state.modules.isEmpty())
@@ -37,11 +36,33 @@ class LessonLearningStateTest {
             modules = listOf(module),
             allLessons = listOf(moduleLesson, legacyLesson),
             progressList = emptyList(),
-            lessonsByModule = mapOf("module-1" to listOf(moduleLesson)),
         )
 
         assertEquals(listOf("module-lesson"), state.modules.single().lessons.map { it.lesson.id })
         assertEquals(listOf("legacy-lesson"), state.legacyLessons.map { it.lesson.id })
+    }
+
+    @Test
+    fun confirmedGlobalSnapshotPopulatesModulesInOrderWithoutAnotherQuery() {
+        val organization = ModuleModel(idModule = "organizacao_financeira", order = 0)
+        val investments = ModuleModel(idModule = "investimentos", order = 1)
+        val budget = LessonModel(id = "budget", moduleId = organization.idModule, order = 0)
+        val reserve = LessonModel(id = "reserve", moduleId = organization.idModule, order = 1)
+        val introduction = LessonModel(id = "introduction", moduleId = investments.idModule, order = 0)
+
+        val state = buildLearningContent(
+            modules = listOf(organization, investments),
+            allLessons = listOf(reserve, introduction, budget),
+            progressList = emptyList(),
+        )
+
+        assertEquals(listOf("budget", "reserve"),
+            state.modules[0].lessons.map { it.lesson.id })
+        assertEquals(listOf("introduction"),
+            state.modules[1].lessons.map { it.lesson.id })
+        assertTrue(state.modules[0].isLessonUnlocked(0))
+        assertFalse(state.modules[0].isLessonUnlocked(1))
+        assertTrue(state.modules[1].isLessonUnlocked(0))
     }
 
     @Test(expected = IllegalStateException::class)
@@ -52,7 +73,6 @@ class LessonLearningStateTest {
             modules = emptyList(),
             allLessons = listOf(orphanLesson),
             progressList = emptyList(),
-            lessonsByModule = emptyMap(),
         )
     }
 

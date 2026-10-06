@@ -44,15 +44,11 @@ class LessonViewModel(private val userId: String) : ViewModel() {
                 val modules = moduleRepository.getModules()
                 val allLessons = repository.getLessons()
                 val progressList = repository.getLessonProgress()
-                val lessonsByModule = modules.associate { module ->
-                    module.idModule to repository.getLessonsByModule(module.idModule)
-                }
 
                 _uiState.value = buildLearningContent(
                     modules = modules,
                     allLessons = allLessons,
                     progressList = progressList,
-                    lessonsByModule = lessonsByModule,
                 )
             } catch (e: CancellationException) {
                 throw e

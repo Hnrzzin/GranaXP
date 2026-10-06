@@ -42,6 +42,11 @@ android {
     }
 }
 
+// DexMaker's inline mocker needs the native agent unpacked in the test APK only.
+androidComponents.onVariants(androidComponents.selector().withBuildType("debug")) { variant ->
+    variant.androidTest?.packaging?.jniLibs?.useLegacyPackaging?.set(true)
+}
+
 dependencies {
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.core.ktx)
@@ -80,6 +85,7 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation("org.mockito:mockito-android:5.23.0")
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

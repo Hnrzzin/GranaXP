@@ -20,13 +20,6 @@ class LessonRepository(private val userId: String) {
             .sortedWith(compareBy<LessonModel> { it.order }.thenBy { it.id })
     }
 
-    suspend fun getLessonsByModule(moduleId: String): List<LessonModel> {
-        return lessonsCollection.whereEqualTo("moduleId", moduleId).get().await()
-            .mapNotNull { it.toObject(LessonModel::class.java) }
-            .sortedWith(compareBy<LessonModel> { it.order }.thenBy { it.id })
-    }
-
-
     suspend fun openLesson(lessonId: String): LessonOpenResult {
         require(lessonId.isNotBlank()) { "A lição não possui ID." }
         val result = functions.getHttpsCallable("openLesson")

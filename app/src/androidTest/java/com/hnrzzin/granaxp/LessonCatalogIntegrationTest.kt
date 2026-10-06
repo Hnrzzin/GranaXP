@@ -6,11 +6,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModelStore
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.Source
 import com.hnrzzin.granaxp.repositories.DailyMissionRepository
 import com.hnrzzin.granaxp.repositories.LessonRepository
 import com.hnrzzin.granaxp.viewmodel.LessonUiState
@@ -29,6 +31,8 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.Rule
 import org.junit.runner.RunWith
+import org.mockito.Mockito
+import java.util.concurrent.atomic.AtomicReference
 
 /** Run only with the opt-in APK and a fresh Emulator Suite --project demo-granaxp. */
 @RunWith(AndroidJUnit4::class)
@@ -71,9 +75,10 @@ class LessonCatalogIntegrationTest {
                     viewModels.put("daily", daily)
                     viewModels.put("user", user)
                 }
+                val visibleTrail = mutableStateOf(trail)
                 compose.setContent {
                     MaterialTheme {
-                        LearnScreen(trail, daily, {}, {}, user, {})
+                        LearnScreen(visibleTrail.value, daily, {}, {}, user, {})
                     }
                 }
                 val empty = awaitTrail(trail)
@@ -118,6 +123,133 @@ class LessonCatalogIntegrationTest {
                 compose.onNodeWithText("Primeira").assertIsDisplayed()
                 compose.onNodeWithText("Nenhum conteúdo de aprendizagem disponível.").assertDoesNotExist()
 
+                // Two independent module sequences are assembled from the same server snapshot.
+                val organizationId = "organizacao_financeira"
+                val investmentsId = "investimentos"
+                adminDocument("modules?documentId=$organizationId", "POST", """
+                    {"fields":{"title":{"stringValue":"Organização Financeira"},
+                      "description":{"stringValue":"Lições modulares locais"},
+                      "order":{"integerValue":"0"}}}
+                """.trimIndent())
+                adminDocument("modules?documentId=$investmentsId", "POST", """
+                    {"fields":{"title":{"stringValue":"Investimentos"},
+                      "description":{"stringValue":"Módulo independente"},
+                      "order":{"integerValue":"1"}}}
+                """.trimIndent())
+                for ((id, title, order) in listOf(
+                    Triple("block10-2-a", "Primeira", 0), Triple("block10-2-b", "Segunda", 1),
+                )) {
+                    adminDocument("lessons/$id", "PATCH", """
+                        {"fields":{"title":{"stringValue":"$title"},
+                          "description":{"stringValue":"Teste local"},
+                          "duration":{"integerValue":"1"},
+                          "xpReward":{"integerValue":"0"},
+                          "order":{"integerValue":"$order"},
+                          "moduleId":{"stringValue":"$organizationId"}}}
+                    """.trimIndent())
+                }
+                refreshTrail(trail)
+                val onlineModules = awaitTrail(trail) as LessonUiState.Success
+                assertEquals(listOf(organizationId, investmentsId),
+                    onlineModules.modules.map { it.module.idModule })
+                assertEquals(listOf("block10-2-a", "block10-2-b"),
+                    onlineModules.modules[0].lessons.map { it.lesson.id })
+                assertTrue(onlineModules.modules[1].lessons.isEmpty())
+                compose.onNodeWithText("Organização Financeira").assertIsDisplayed()
+
+                // The server confirms a third lesson. Network loss after that read must
+                // not cause another modular query or discard any confirmed lesson.
+                adminDocument("lessons?documentId=block10-3-c", "POST", """
+                    {"fields":{"title":{"stringValue":"Terceira"},
+                      "description":{"stringValue":"Teste local"},
+                      "duration":{"integerValue":"1"},
+                      "xpReward":{"integerValue":"0"},
+                      "order":{"integerValue":"2"},
+                      "moduleId":{"stringValue":"$investmentsId"}}}
+                """.trimIndent())
+                // The spy delegates the authoritative read to the real Repository,
+                // then cuts the SDK connection before fetchLessons() can continue.
+                // No state is assembled or injected by the test.
+                val repositoryField = LessonViewModel::class.java.getDeclaredField("repository")
+                repositoryField.isAccessible = true
+                val originalRepository = repositoryField.get(trail) as LessonRepository
+                val observedSnapshot = AtomicReference<List<String>>()
+                val offlineModuleCount = AtomicReference<Int>()
+                val timedRepository = Mockito.spy(originalRepository)
+                Mockito.doAnswer {
+                    runBlocking {
+                        val snapshot = originalRepository.getLessons()
+                        observedSnapshot.set(snapshot.map { it.id })
+                        db.disableNetwork().await()
+                        offlineModuleCount.set(db.collection("lessons")
+                            .whereEqualTo("moduleId", investmentsId)
+                            .get(Source.DEFAULT).await().size())
+                        snapshot
+                    }
+                }.`when`(timedRepository).getLessons()
+                InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                    repositoryField.set(trail, timedRepository)
+                }
+                try {
+                    refreshTrail(trail)
+                    val assembled = awaitTrail(trail) as LessonUiState.Success
+                    assertEquals(listOf("block10-2-a", "block10-2-b", "block10-3-c"),
+                        observedSnapshot.get())
+                    assertEquals("The offline modular query must diverge from the server snapshot",
+                        0, offlineModuleCount.get())
+                    assertEquals(3, assembled.lessons.size)
+                    assertEquals(listOf("block10-2-a", "block10-2-b"),
+                        assembled.modules[0].lessons.map { it.lesson.id })
+                    assertEquals(listOf("block10-3-c"),
+                        assembled.modules[1].lessons.map { it.lesson.id })
+                    assertTrue(assembled.modules[0].isLessonUnlocked(0))
+                    assertFalse(assembled.modules[0].isLessonUnlocked(1))
+                    assertTrue(assembled.modules[1].isLessonUnlocked(0))
+                    compose.onNodeWithText("Organização Financeira").assertIsDisplayed()
+                    compose.onNodeWithText("Primeira").assertIsDisplayed()
+                    compose.onNodeWithText("Terceira").assertIsDisplayed()
+                    compose.onNodeWithText("Nenhuma lição disponível neste módulo.").assertDoesNotExist()
+                } finally {
+                    InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                        repositoryField.set(trail, originalRepository)
+                    }
+                    db.enableNetwork().await()
+                }
+                refreshTrail(trail)
+                val recovered = awaitTrail(trail) as LessonUiState.Success
+                assertEquals(3, recovered.lessons.size)
+                assertEquals(listOf("block10-3-c"),
+                    recovered.modules[1].lessons.map { it.lesson.id })
+
+                // Reopening the screen offline with a warm cache must show an error,
+                // never the previous modular content as if it were current.
+                db.disableNetwork().await()
+                try {
+                    InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                        trail = LessonViewModel(uid)
+                        viewModels.put("trail", trail)
+                        visibleTrail.value = trail
+                    }
+                    assertTrue(awaitTrail(trail) is LessonUiState.Error)
+                    compose.onNodeWithText("Falha ao carregar a trilha:", substring = true).assertIsDisplayed()
+                    compose.onNodeWithText("Organização Financeira").assertDoesNotExist()
+                    compose.onNodeWithText("Terceira").assertDoesNotExist()
+                } finally {
+                    db.enableNetwork().await()
+                }
+                refreshTrail(trail)
+                val reopened = awaitTrail(trail) as LessonUiState.Success
+                assertEquals(3, reopened.lessons.size)
+                assertEquals(listOf("block10-3-c"),
+                    reopened.modules[1].lessons.map { it.lesson.id })
+                compose.onNodeWithText("Organização Financeira").assertIsDisplayed()
+                adminDocument("lessons/block10-3-c", "DELETE")
+                refreshTrail(trail)
+                val afterRemoval = awaitTrail(trail) as LessonUiState.Success
+                assertEquals(2, afterRemoval.lessons.size)
+                assertTrue(afterRemoval.modules[1].lessons.isEmpty())
+                compose.onNodeWithText("Terceira").assertDoesNotExist()
+
                 // A real authenticated callable proves Auth + Functions share the demo project.
                 assertFalse(DailyMissionRepository().openDailyMission(1_791_115_200_000).available)
 
@@ -149,6 +281,9 @@ class LessonCatalogIntegrationTest {
                 adminDocument("lessons/block10-2-a", "DELETE")
                 adminDocument("lessons/block10-2-b", "DELETE")
                 adminDocument("lessons/block10-2-invalid", "DELETE")
+                adminDocument("lessons/block10-3-c", "DELETE")
+                adminDocument("modules/organizacao_financeira", "DELETE")
+                adminDocument("modules/investimentos", "DELETE")
                 adminDocument("users/$uid", "DELETE")
                 auth.signInWithEmailAndPassword(email, password).await().user!!.delete().await()
                 auth.signOut()

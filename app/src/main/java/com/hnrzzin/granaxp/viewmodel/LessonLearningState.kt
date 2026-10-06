@@ -92,7 +92,6 @@ internal fun buildLearningContent(
     modules: List<ModuleModel>,
     allLessons: List<LessonModel>,
     progressList: List<LessonProgressModel>,
-    lessonsByModule: Map<String, List<LessonModel>>,
 ): LessonUiState.Success {
     val moduleIds = modules.map { it.idModule }.toSet()
     val orphanLessons = allLessons.filter {
@@ -101,6 +100,7 @@ internal fun buildLearningContent(
     check(orphanLessons.isEmpty()) {
         "Há lições vinculadas a módulos inexistentes."
     }
+    val lessonsByModule = allLessons.filter { it.moduleId.isNotBlank() }.groupBy { it.moduleId }
 
     fun withProgress(lessons: List<LessonModel>): List<LessonWithProgress> = lessons.map { lesson ->
         LessonWithProgress(
@@ -113,7 +113,8 @@ internal fun buildLearningContent(
         modules = modules.map { module ->
             ModuleWithLessons(
                 module = module,
-                lessons = withProgress(lessonsByModule[module.idModule].orEmpty()),
+                lessons = withProgress(lessonsByModule[module.idModule].orEmpty()
+                    .sortedWith(compareBy<LessonModel> { it.order }.thenBy { it.id })),
             )
         },
         legacyLessons = withProgress(allLessons.filter { it.moduleId.isBlank() }),
