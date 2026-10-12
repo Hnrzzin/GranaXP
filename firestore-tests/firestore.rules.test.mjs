@@ -48,6 +48,32 @@ const seed = async (path, data) => {
   });
 };
 
+describe("autoridade v3", () => {
+  test("controle global do catálogo não é legível ou gravável pelo cliente", async () => {
+    await seed("learningCatalogControl/current", {protocolVersion: 1, generation: 1});
+    const db = userDb(USER_A);
+    const ref = doc(db, "learningCatalogControl/current");
+    await assertFails(getDoc(ref));
+    await assertFails(getDocs(collection(db, "learningCatalogControl")));
+    await assertFails(updateDoc(ref, {generation: 2}));
+    await assertFails(deleteDoc(ref));
+    await assertFails(setDoc(doc(db, "learningCatalogControl/other"), {protocolVersion: 1, generation: 1}));
+  });
+
+  test("dono lê progresso opaco mas não fabrica provas ou conclusão v3", async () => {
+    const path = `users/${USER_A}/lessonProgress/lesson-v3`;
+    const progress = {lessonId: "lesson-v3", isCompleted: false, completedActivityIds: [],
+      validatedActivityIds: [], activityValidationProofs: {}, activityValidationVersion: 3};
+    await seed(path, progress);
+    const ref = doc(userDb(USER_A), path);
+    await assertSucceeds(getDoc(ref));
+    await assertFails(updateDoc(ref, {isCompleted: true, completionValidationVersion: 3}));
+    await assertFails(updateDoc(ref, {completedActivityIds: ["activity"], validatedActivityIds: ["activity"],
+      activityValidationProofs: {activity: ["hmac-sha256:3:fake:" + "0".repeat(64)]}}));
+    await assertFails(setDoc(doc(userDb(USER_A), `users/${USER_A}/lessonProgress/forged`), progress));
+  });
+});
+
 before(async () => {
   testEnv = await initializeTestEnvironment({
     projectId: PROJECT_ID,

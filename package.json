@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "test:firestore-rules": "firebase emulators:exec --only firestore --project demo-granaxp \"node --test firestore-tests/firestore.rules.test.mjs\"",
-    "test:functions": "npm --prefix functions run build && firebase emulators:exec --only auth,firestore,functions --project demo-granaxp \"npm --prefix functions test\""
+    "test:functions": "node scripts/functions-emulator-runner.mjs functions"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "5.0.2",

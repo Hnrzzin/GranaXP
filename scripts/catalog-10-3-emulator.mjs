@@ -12,6 +12,7 @@ import {assertDemoEmulatorTarget, buildCatalogManifest} from './catalog-10-3.mjs
 const requireFunctions = createRequire(resolve('functions/package.json'));
 const {initializeApp: initializeAdminApp} = requireFunctions('firebase-admin/app');
 const {getFirestore} = requireFunctions('firebase-admin/firestore');
+const {publishLearningCatalogMutation} = requireFunctions('./lib/learningCatalogPublication.js');
 const projectId = 'demo-granaxp';
 const firestoreHost = '127.0.0.1:8080';
 const authHost = '127.0.0.1:9099';
@@ -107,7 +108,9 @@ async function exerciseLesson(user, manifest, lessonId, xpReward, achievementId)
     assert.equal('feedback' in answer, false);
     assert.equal(answer.completedActivityIds.length, index + 1);
     const persisted = (await progressRef.get()).data();
-    assert.equal(persisted.activityValidationVersion, 1);
+    assert.equal(persisted.activityValidationVersion, 3);
+    assert.equal(persisted.activityValidationProofs[blockId].length, 1);
+    assert.equal('activityValidationProofs' in answer, false);
     assert.equal(persisted.completedActivityIds.length, index + 1);
     const reopened = await call(user.functions, 'openLesson', {lessonId});
     assert.equal(reopened.completedActivityIds.length, index + 1);
@@ -121,7 +124,7 @@ async function exerciseLesson(user, manifest, lessonId, xpReward, achievementId)
   const progressRef = getFirestore().doc(`users/${user.uid}/lessonProgress/${lessonId}`);
   const progress = (await progressRef.get()).data();
   assert.equal(progress.isCompleted, true);
-  assert.equal(progress.completionValidationVersion, 1);
+  assert.equal(progress.completionValidationVersion, 3);
   assert.ok(progress.completedAt);
   const repeat = await call(user.functions, 'completeLesson', {lessonId});
   assert.deepEqual([repeat.xpEarned, repeat.alreadyCompleted], [0, true]);
@@ -155,18 +158,19 @@ async function main() {
     ['catalog103_module_organizacao_financeira', 'organizacao_financeira', 'Organização Financeira'],
     ['catalog103_module_investimentos', 'investimentos', 'Investimentos'],
   ];
-  const batch = adminDb.batch();
+  await adminDb.doc('learningCatalogControl/current').create({protocolVersion: 1, generation: 1});
+  const mutations = [];
   for (const {path, fields} of [...manifest.modules, ...manifest.lessons, ...manifest.blocks]) {
-    batch.create(adminDb.doc(path), fields);
+    mutations.push({operation: 'create', path, data: fields});
   }
   for (const [id, referenceId, name] of achievementFixtures) {
-    batch.create(adminDb.doc(`achievements/${id}`), {
+    mutations.push({operation: 'create', path: `achievements/${id}`, data: {
       title: `${name} concluído`, description: `Conclua as lições do módulo ${name}.`,
       icon: 'school', requirementType: 'MODULE_COMPLETION', requirementValue: 1,
       referenceId, category: 'EDUCACAO',
-    });
+    }});
   }
-  await batch.commit();
+  await publishLearningCatalogMutation(adminDb, 1, mutations);
   for (const {path, fields} of [...manifest.modules, ...manifest.lessons, ...manifest.blocks]) {
     assert.deepEqual((await adminDb.doc(path).get()).data(), fields, `${path} differs after seed`);
   }
@@ -174,11 +178,14 @@ async function main() {
 
   const first = await client('a');
   const second = await client('b');
+  const third = await client('c');
   try {
     await setDoc(doc(first.db, `users/${first.uid}`),
       {name: 'Teste catálogo A', email: first.email, level: 1, xp: 0, nextLevelXp: 100});
     await setDoc(doc(second.db, `users/${second.uid}`),
       {name: 'Teste catálogo B', email: second.email, level: 1, xp: 0, nextLevelXp: 100});
+    await setDoc(doc(third.db, `users/${third.uid}`),
+      {name: 'Teste prova V3', email: third.email, level: 1, xp: 0, nextLevelXp: 100});
     const modules = await getDocs(collection(first.db, 'modules'));
     assert.deepEqual(modules.docs.sort((a, b) => a.data().order - b.data().order)
       .map((entry) => entry.id), ['organizacao_financeira', 'investimentos']);
@@ -235,6 +242,37 @@ async function main() {
     assert.equal((await adminDb.doc(`users/${second.uid}/achievementProgress/catalog103_module_organizacao_financeira`).get()).exists, false);
     assert.deepEqual(((await adminDb.doc(`users/${second.uid}`).get()).data().xp), 0);
     console.log('LEGACY PASS: prior completion unlocks Reserve; no duplicate Budget XP or retroactive MODULE_COMPLETION.');
+    const proofLesson = 'Eo6rq9c4HDAtZRR6TAjp';
+    const proofActivities = lessonBlocks(manifest, proofLesson).filter(({fields}) => fields.type === 'ACTIVITY');
+    await call(third.functions, 'openLesson', {lessonId: proofLesson});
+    for (const {path, fields} of proofActivities) {
+      await call(third.functions, 'submitLessonActivity', {
+        lessonId: proofLesson, blockId: path.split('/').at(-1), selectedAnswerIds: fields.correctAnswerIds,
+      });
+    }
+    const changing = proofActivities[0];
+    const activityId = changing.path.split('/').at(-1);
+    const otherAnswer = Object.keys(changing.fields.alternatives).find((id) => !changing.fields.correctAnswerIds.includes(id));
+    const editAnswer = async (answers) => {
+      const generation = (await adminDb.doc('learningCatalogControl/current').get()).data().generation;
+      await publishLearningCatalogMutation(adminDb, generation,
+        [{operation: 'update', path: changing.path, data: {correctAnswerIds: answers}}]);
+    };
+    await editAnswer([otherAnswer]);
+    assert.deepEqual((await call(third.functions, 'openLesson', {lessonId: proofLesson})).completedActivityIds,
+      proofActivities.slice(1).map(({path}) => path.split('/').at(-1)).sort());
+    await rejectsPrecondition(() => call(third.functions, 'completeLesson', {lessonId: proofLesson}));
+    assert.equal((await adminDb.doc(`users/${third.uid}`).get()).data().xp, 0);
+    assert.equal((await adminDb.doc(`users/${third.uid}/achievementProgress/catalog103_module_investimentos`).get()).exists, false);
+    await call(third.functions, 'submitLessonActivity', {lessonId: proofLesson, blockId: activityId, selectedAnswerIds: [otherAnswer]});
+    const proofRef = adminDb.doc(`users/${third.uid}/lessonProgress/${proofLesson}`);
+    assert.equal((await proofRef.get()).data().activityValidationProofs[activityId].length, 2);
+    await editAnswer(changing.fields.correctAnswerIds);
+    assert.equal((await call(third.functions, 'openLesson', {lessonId: proofLesson})).completedActivityIds.length, 3);
+    assert.equal((await call(third.functions, 'completeLesson', {lessonId: proofLesson})).xpEarned, 150);
+    assert.equal((await call(third.functions, 'completeLesson', {lessonId: proofLesson})).xpEarned, 0);
+    assert.equal((await adminDb.doc(changing.path).get()).data().correctAnswerIds[0], changing.fields.correctAnswerIds[0]);
+    console.log('PROOF V3 PASS: one changed activity pending, no invalid reward, A/B history retained, exact A restoration and XP once.');
     const orgQuery = query(collection(first.db, 'lessons'), where('moduleId', '==', 'organizacao_financeira'));
     await getDocs(orgQuery);
     await disableNetwork(first.db);
@@ -248,10 +286,9 @@ async function main() {
     } finally {
       await enableNetwork(first.db);
     }
-    console.log('Client credentials for optional local UI inspection:', first.email, '(password: local-test-password)');
   } finally {
-    await Promise.all([signOut(first.auth), signOut(second.auth)]);
-    await Promise.all([deleteApp(first.app), deleteApp(second.app)]);
+    await Promise.all([signOut(first.auth), signOut(second.auth), signOut(third.auth)]);
+    await Promise.all([deleteApp(first.app), deleteApp(second.app), deleteApp(third.app)]);
   }
 }
 

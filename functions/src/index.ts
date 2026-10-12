@@ -10,13 +10,25 @@ import {
   type Transaction,
 } from "firebase-admin/firestore";
 import {HttpsError, onCall, type CallableRequest} from "firebase-functions/v2/https";
+import {defineSecret} from "firebase-functions/params";
 import {deleteAccountForUid} from "./accountDeletion";
+import {
+  collectValidActivityIds, parseActivityValidationProofs, parseLessonActivityProofKeyring,
+  progressIdList, proofActivityFromBlock, signLessonActivityProof, stableCompare, type ProofKeyring,
+} from "./lessonActivityProofs";
+import {readLearningCatalogControl} from "./learningCatalogPublication";
 
 initializeApp();
 
 const db = getFirestore();
 const auth = getAuth();
 const callableOptions = {region: "southamerica-east1"};
+const lessonProofKeyring = defineSecret("LESSON_ACTIVITY_PROOF_KEYRING");
+const lessonCallableOptions = {...callableOptions, secrets: [lessonProofKeyring]};
+function readLessonProofKeyring(): ProofKeyring {
+  try { return parseLessonActivityProofKeyring(lessonProofKeyring.value()); }
+  catch { throw new HttpsError("failed-precondition", "Validação de atividades indisponível."); }
+}
 const GOAL_COMPLETION_XP = 200;
 const MAX_MONEY = 1_000_000_000_000;
 const DAILY_MISSION_BASE_UTC = Date.UTC(2026, 9, 1);
@@ -123,21 +135,24 @@ async function lessonProgressDocuments(transaction: Transaction, uid: string, le
       !documents.some((document) => document.id === lessonId)) {
     documents.push(canonical);
   }
-  return documents;
+  return documents.sort((left, right) => stableCompare(left.id, right.id));
 }
 
-function completedActivityIds(documents: DocumentSnapshot[], historicalCompletion: boolean): string[] {
-  const ids = new Set<string>();
+function progressActivityIds(documents: DocumentSnapshot[]): {historical: string[]; recorded: string[]} {
+  const historical = new Set<string>();
+  const recorded = new Set<string>();
   for (const document of documents) {
     const data = document.data()!;
-    if (historicalCompletion || data.activityValidationVersion === 1) {
-      if (Array.isArray(data.completedActivityIds)) {
-        data.completedActivityIds.filter((id: unknown): id is string => typeof id === "string")
-          .forEach((id: string) => ids.add(id));
-      }
-    }
+    progressIdList(data, "completedActivityIds").forEach((id) => historical.add(id));
+    progressIdList(data, "validatedActivityIds").forEach((id) => recorded.add(id));
   }
-  return [...ids].sort();
+  return {historical: [...historical].sort(stableCompare), recorded: [...recorded].sort(stableCompare)};
+}
+
+function visibleCompletedActivityIds(
+  ids: {historical: string[]; recorded: string[]}, historicalCompletion: boolean, validIds: string[],
+): string[] {
+  return historicalCompletion ? [...new Set([...ids.historical, ...ids.recorded])].sort(stableCompare) : validIds;
 }
 
 async function assertLessonUnlocked(
@@ -179,7 +194,7 @@ async function moduleAchievementsToUnlock(
   ));
   if (otherProgress.some((documents) => !documents.some((document) => {
     const data = document.data()!;
-    return isCompleted(data) && data.completionValidationVersion === 1;
+    return isCompleted(data) && data.completionValidationVersion === 3;
   }))) {
     return [];
   }
@@ -192,30 +207,42 @@ async function moduleAchievementsToUnlock(
     })));
 }
 
+const supportedActivityTypes = new Set([
+  "MULTIPLE_CHOICE", "TRUE_FALSE", "CLASSIFICATION", "FINANCIAL_SCENARIO", "CHART_ANALYSIS",
+]);
+const MAX_ACTIVITY_ANSWER_ID_LENGTH = 200;
+
+function validActivityAnswerId(id: unknown): id is string {
+  return typeof id === "string" && id.length > 0 && id.length <= MAX_ACTIVITY_ANSWER_ID_LENGTH;
+}
+
 function validatedActivity(block: DocumentData): {alternatives: Record<string, string>; answers: string[]; feedback: string} {
   const alternatives = block.alternatives;
   const answers = block.correctAnswerIds;
   const feedback = block.feedback;
   if (typeof alternatives !== "object" || alternatives === null || Array.isArray(alternatives) ||
       Object.keys(alternatives).length === 0 ||
+      !Object.keys(alternatives).every(validActivityAnswerId) ||
       !Object.values(alternatives).every((value) => typeof value === "string") ||
       !Array.isArray(answers) || answers.length === 0 || answers.length > 100 ||
-      !answers.every((id) => typeof id === "string" && Object.hasOwn(alternatives, id)) ||
+      !answers.every((id) => validActivityAnswerId(id) && Object.hasOwn(alternatives, id)) ||
       new Set(answers).size !== answers.length ||
-      typeof block.activityType !== "string" || block.activityType.length === 0 ||
+      typeof block.activityType !== "string" || !supportedActivityTypes.has(block.activityType) ||
       typeof feedback !== "string" || feedback.trim().length === 0) {
     throw new HttpsError("failed-precondition", "Atividade do catálogo inválida.");
   }
   return {alternatives, answers, feedback};
 }
 
-export const openLesson = onCall(callableOptions, async (request) => {
+export const openLesson = onCall(lessonCallableOptions, async (request) => {
   const uid = requireUid(request);
   const lessonId = requireString(requireObject(request.data), "lessonId");
   const lessonRef = db.doc(`lessons/${lessonId}`);
   const userRef = db.doc(`users/${uid}`);
   try {
+    const keyring = readLessonProofKeyring();
     return await db.runTransaction(async (transaction) => {
+      await readLearningCatalogControl(transaction, db);
       const [lesson, user, blocks, progress] = await Promise.all([
         transaction.get(lessonRef), transaction.get(userRef),
         transaction.get(lessonRef.collection("blocks")),
@@ -225,6 +252,9 @@ export const openLesson = onCall(callableOptions, async (request) => {
       if (!user.exists) throw new HttpsError("failed-precondition", "Perfil não encontrado.");
       const alreadyCompleted = progress.some((document) => isCompleted(document.data()!));
       await assertLessonUnlocked(transaction, uid, lessonId, lesson.data()!, alreadyCompleted);
+      const activities = lessonProofActivities(blocks.docs);
+      const validIds = collectValidActivityIds(progress.map((document) => document.data()!), activities, {uid, lessonId}, keyring);
+      const ids = visibleCompletedActivityIds(progressActivityIds(progress), alreadyCompleted, validIds);
       const visibleBlocks = blocks.docs
         .sort((left, right) => (left.data().order ?? 0) - (right.data().order ?? 0) || left.id.localeCompare(right.id))
         .map((document) => {
@@ -247,42 +277,55 @@ export const openLesson = onCall(callableOptions, async (request) => {
         transaction.update(target.ref, {lastAccessed: FieldValue.serverTimestamp()});
       } else {
         transaction.create(userRef.collection("lessonProgress").doc(lessonId), {
-          lessonId, isCompleted: false, completedActivityIds: [],
+          lessonId, isCompleted: false, completedActivityIds: [], validatedActivityIds: [],
+          activityValidationProofs: {}, activityValidationVersion: 3,
           lastAccessed: FieldValue.serverTimestamp(), completedAt: null,
         });
       }
-      return {blocks: visibleBlocks, completedActivityIds: completedActivityIds(progress, alreadyCompleted)};
+      return {blocks: visibleBlocks, completedActivityIds: ids};
     });
   } catch (error) {
     return wrapUnexpected(error);
   }
 });
 
-export const submitLessonActivity = onCall(callableOptions, async (request) => {
+function lessonProofActivities(blocks: QueryDocumentSnapshot[]) {
+  return blocks.filter((block) => String(block.data().type).toUpperCase() === "ACTIVITY").map((block) => {
+    const activity = validatedActivity(block.data());
+    return {id: block.id, activity: proofActivityFromBlock(block.data(), activity.answers), feedback: activity.feedback};
+  });
+}
+
+export const submitLessonActivity = onCall(lessonCallableOptions, async (request) => {
   const uid = requireUid(request);
   const data = requireObject(request.data);
   const lessonId = requireString(data, "lessonId");
   const blockId = requireString(data, "blockId");
   const selected = data.selectedAnswerIds;
   if (!Array.isArray(selected) || selected.length === 0 || selected.length > 100 ||
-      !selected.every((id) => typeof id === "string" && id.length > 0 && id.length <= 200) ||
+      !selected.every(validActivityAnswerId) ||
       new Set(selected).size !== selected.length) {
     throw new HttpsError("invalid-argument", "Alternativas selecionadas inválidas.");
   }
   const lessonRef = db.doc(`lessons/${lessonId}`);
   try {
+    const keyring = readLessonProofKeyring();
     return await db.runTransaction(async (transaction) => {
-      const [lesson, block, progress] = await Promise.all([
-        transaction.get(lessonRef), transaction.get(lessonRef.collection("blocks").doc(blockId)),
+      await readLearningCatalogControl(transaction, db);
+      const [lesson, blocks, progress] = await Promise.all([
+        transaction.get(lessonRef), transaction.get(lessonRef.collection("blocks")),
         lessonProgressDocuments(transaction, uid, lessonId),
       ]);
-      if (!lesson.exists || !block.exists || String(block.data()?.type).toUpperCase() !== "ACTIVITY") {
+      const block = blocks.docs.find((document) => document.id === blockId);
+      if (!lesson.exists || !block || String(block.data()?.type).toUpperCase() !== "ACTIVITY") {
         throw new HttpsError("not-found", "Atividade não encontrada.");
       }
       if (progress.length === 0) throw new HttpsError("failed-precondition", "Abra a lição antes de responder.");
       const alreadyCompleted = progress.some((document) => isCompleted(document.data()!));
       await assertLessonUnlocked(transaction, uid, lessonId, lesson.data()!, alreadyCompleted);
-      const activity = validatedActivity(block.data()!);
+      const activities = lessonProofActivities(blocks.docs);
+      const activity = validatedActivity(block.data());
+      collectValidActivityIds(progress.map((document) => document.data()!), activities, {uid, lessonId}, keyring);
       if (selected.some((id) => !Object.hasOwn(activity.alternatives, id)) ||
           (activity.answers.length === 1 && selected.length !== 1)) {
         throw new HttpsError("invalid-argument", "Alternativas selecionadas inválidas.");
@@ -290,48 +333,65 @@ export const submitLessonActivity = onCall(callableOptions, async (request) => {
       const correct = selected.length === activity.answers.length &&
         selected.every((id) => activity.answers.includes(id));
       if (!correct) return {correct: false, feedback: activity.feedback};
-      const verifiedIds = completedActivityIds(progress, alreadyCompleted);
-      if (!verifiedIds.includes(blockId)) {
-        const target = progress.find((document) => document.id === lessonId) ?? progress[0];
-        transaction.update(target.ref, {
-          completedActivityIds: [...new Set([...verifiedIds, blockId])].sort(),
-          activityValidationVersion: 1,
-        });
-        verifiedIds.push(blockId);
-      }
-      return {correct: true, completedActivityIds: [...new Set(verifiedIds)].sort()};
+      const ids = progressActivityIds(progress);
+      const target = progress.find((document) => document.id === lessonId) ?? progress[0];
+      const proofs = parseActivityValidationProofs(target.data()!);
+      const token = signLessonActivityProof({uid, lessonId, activityId: blockId},
+        activities.find(({id}) => id === blockId)!.activity, keyring);
+      const previous = Object.hasOwn(proofs, blockId) ? proofs[blockId] : [];
+      const updates = {
+        completedActivityIds: [...new Set([...ids.historical, ...ids.recorded, blockId])].sort(stableCompare),
+        validatedActivityIds: [...new Set([...ids.recorded, blockId])].sort(stableCompare),
+        activityValidationProofs: {...proofs, [blockId]: [...new Set([...previous, token])].sort(stableCompare)},
+        activityValidationVersion: 3,
+      };
+      if (!previous.includes(token)) transaction.update(target.ref, updates);
+      const currentProgress = progress.map((document) => document.id === target.id ?
+        {...document.data(), ...updates} : document.data()!);
+      const validIds = collectValidActivityIds(currentProgress, activities, {uid, lessonId}, keyring);
+      return {correct: true, completedActivityIds: visibleCompletedActivityIds({
+        historical: updates.completedActivityIds, recorded: updates.validatedActivityIds,
+      }, alreadyCompleted, validIds)};
     });
   } catch (error) {
     return wrapUnexpected(error);
   }
 });
 
-export const completeLesson = onCall(callableOptions, async (request) => {
+export const completeLesson = onCall(lessonCallableOptions, async (request) => {
   const uid = requireUid(request);
   const lessonId = requireString(requireObject(request.data), "lessonId");
   const lessonRef = db.doc(`lessons/${lessonId}`);
   const userRef = db.doc(`users/${uid}`);
   try {
+    let keyring: ProofKeyring | undefined;
     return await db.runTransaction(async (transaction): Promise<XpResult & {alreadyCompleted: boolean}> => {
-      const [lessonSnapshot, userSnapshot, progressDocuments, blocksSnapshot] = await Promise.all([
-        transaction.get(lessonRef),
+      const [userSnapshot, progressDocuments] = await Promise.all([
         transaction.get(userRef),
         lessonProgressDocuments(transaction, uid, lessonId),
-        transaction.get(lessonRef.collection("blocks")),
       ]);
-      if (!lessonSnapshot.exists) throw new HttpsError("not-found", "Lição não encontrada.");
       if (!userSnapshot.exists) throw new HttpsError("failed-precondition", "Perfil não encontrado.");
       if (progressDocuments.length === 0) {
         throw new HttpsError("failed-precondition", "Abra a lição antes de concluí-la.");
       }
       if (progressDocuments.some((document) => isCompleted(document.data()!))) {
+        if (!(await transaction.get(lessonRef)).exists) throw new HttpsError("not-found", "Lição não encontrada.");
         return {xpEarned: 0, leveledUp: false, alreadyCompleted: true};
       }
+      keyring ??= readLessonProofKeyring();
+      await readLearningCatalogControl(transaction, db);
+      const [lessonSnapshot, blocksSnapshot] = await Promise.all([
+        transaction.get(lessonRef), transaction.get(lessonRef.collection("blocks")),
+      ]);
+      if (!lessonSnapshot.exists) throw new HttpsError("not-found", "Lição não encontrada.");
       await assertLessonUnlocked(transaction, uid, lessonId, lessonSnapshot.data()!, false);
-      const verifiedIds = new Set(completedActivityIds(progressDocuments, false));
-      const requiredActivityIds = blocksSnapshot.docs
-        .filter((block) => String(block.data().type).toUpperCase() === "ACTIVITY")
-        .map((block) => block.id);
+      const activities = lessonProofActivities(blocksSnapshot.docs);
+      if (activities.length === 0) {
+        throw new HttpsError("failed-precondition", "Lição sem atividades válidas no catálogo.");
+      }
+      const verifiedIds = new Set(collectValidActivityIds(progressDocuments.map((document) => document.data()!),
+        activities, {uid, lessonId}, keyring));
+      const requiredActivityIds = activities.map(({id}) => id);
       if (!requiredActivityIds.every((id) => verifiedIds.has(id))) {
         throw new HttpsError("failed-precondition", "Conclua todas as atividades antes de finalizar a lição.");
       }
@@ -347,7 +407,7 @@ export const completeLesson = onCall(callableOptions, async (request) => {
       );
       const xp = applyXp(userSnapshot.data()!, xpReward);
       transaction.update(target.ref, {
-        isCompleted: true, completedAt: FieldValue.serverTimestamp(), completionValidationVersion: 1,
+        isCompleted: true, completedAt: FieldValue.serverTimestamp(), completionValidationVersion: 3,
       });
       transaction.update(userRef, xp.updates);
       for (const {achievementId, progress} of achievements) {
