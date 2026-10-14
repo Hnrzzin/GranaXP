@@ -1,145 +1,180 @@
 package com.hnrzzin.granaxp.ui.theme.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import com.hnrzzin.granaxp.model.DailyMissionModel
 import com.hnrzzin.granaxp.model.LessonSelectionMode
+import com.hnrzzin.granaxp.model.StreakModel
 import com.hnrzzin.granaxp.model.orderedAlternatives
+import com.hnrzzin.granaxp.ui.theme.GranaXPColors
 import com.hnrzzin.granaxp.viewmodel.DailyMissionUiState
 
 @Composable
-fun DailyMissionEntry(
-    state: DailyMissionUiState,
-    onOpen: () -> Unit,
-    onRefresh: () -> Unit,
-) {
-    when (state) {
-        is DailyMissionUiState.Active, is DailyMissionUiState.Completed -> {
-            val streak = when (state) {
-                is DailyMissionUiState.Active -> state.streak
-                is DailyMissionUiState.Completed -> state.streak
-                else -> error("Estado de missão inesperado.")
-            }
-            Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Missão diária", style = MaterialTheme.typography.titleMedium)
-                    Text(if (state is DailyMissionUiState.Completed) "Concluída hoje" else "Responder missão de hoje")
-                    Text("🔥 Sequência: ${streak.currentStreak} dias · Recorde: ${streak.highestStreak} dias")
+fun DailyMissionEntry(state: DailyMissionUiState, onOpen: () -> Unit, onRefresh: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        colors = CardDefaults.cardColors(containerColor = GranaXPColors.Emerald100),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Missão diária", style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold, color = GranaXPColors.Emerald800)
+            when (state) {
+                is DailyMissionUiState.Active -> {
+                    Text("Responder missão de hoje")
+                    MissionStreak(state.streak)
                 }
-            }
-        }
-        is DailyMissionUiState.Error -> {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                is DailyMissionUiState.Completed -> {
+                    Text("Concluída hoje")
+                    MissionStreak(state.streak)
+                }
+                is DailyMissionUiState.Error -> {
                     Text("Não foi possível carregar a missão diária.")
                     Button(onClick = onRefresh) { Text("Tentar novamente") }
                 }
+                DailyMissionUiState.Loading -> Text("Carregando missão...")
+                DailyMissionUiState.Unavailable -> Text("Nenhuma missão diária disponível.")
             }
         }
-        DailyMissionUiState.Loading, DailyMissionUiState.Unavailable -> Unit
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DailyMissionPage(
+fun DailyMissionDialog(
     state: DailyMissionUiState,
     onBack: () -> Unit,
     onSelect: (String) -> Unit,
     onSubmit: () -> Unit,
     onRefresh: () -> Unit,
 ) {
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("Missão diária") },
-            navigationIcon = {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
-                }
-            },
-        )
-    }) { padding ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+    val maxHeight = with(LocalDensity.current) {
+        LocalWindowInfo.current.containerSize.height.toDp()
+    } * 0.82f
+    Dialog(
+        onDismissRequest = onBack,
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
+    ) {
+        Surface(
+            modifier = Modifier.padding(20.dp).widthIn(max = 480.dp).fillMaxWidth()
+                .heightIn(max = maxHeight),
+            shape = RoundedCornerShape(24.dp),
+            color = GranaXPColors.Surface,
+            tonalElevation = 0.dp,
         ) {
-            when (state) {
-                DailyMissionUiState.Loading -> CircularProgressIndicator()
-                DailyMissionUiState.Unavailable -> Text("Nenhuma missão diária disponível.")
-                is DailyMissionUiState.Error -> {
-                    Text(state.message)
-                    Button(onClick = onRefresh) { Text("Tentar novamente") }
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Missão diária", modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                        color = GranaXPColors.PrimaryDark)
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.Close, contentDescription = "Fechar missão diária",
+                            tint = GranaXPColors.Gray600)
+                    }
                 }
-                is DailyMissionUiState.Completed -> {
-                    MissionContent(state.mission)
-                    Text("Missão de hoje concluída.", style = MaterialTheme.typography.titleMedium)
-                    Text("🔥 Sequência: ${state.streak.currentStreak} dias · Recorde: ${state.streak.highestStreak} dias")
-                    if (state.xpEarned > 0) Text("+${state.xpEarned} XP pelo marco da sequência")
-                    if (state.leveledUp) Text("Você alcançou um novo nível!")
-                }
-                is DailyMissionUiState.Active -> {
-                    MissionContent(state.mission)
-                    Text("🔥 Sequência: ${state.streak.currentStreak} dias · Recorde: ${state.streak.highestStreak} dias")
-                    state.mission.orderedAlternatives().forEach { (id, label) ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clickable(
-                                enabled = !state.isSubmitting, onClick = { onSelect(id) },
-                            ).padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            if (state.mission.selectionMode == LessonSelectionMode.MULTIPLE) {
-                                Checkbox(
-                                    checked = id in state.selectedAnswerIds,
-                                    onCheckedChange = { onSelect(id) },
-                                    enabled = !state.isSubmitting,
-                                )
-                            } else {
-                                RadioButton(
-                                    selected = id in state.selectedAnswerIds,
-                                    onClick = { onSelect(id) },
-                                    enabled = !state.isSubmitting,
-                                )
+                Column(
+                    modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
+                        .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    when (state) {
+                        DailyMissionUiState.Loading -> {
+                            CircularProgressIndicator()
+                            Text("Carregando missão...")
+                        }
+                        DailyMissionUiState.Unavailable -> Text("Nenhuma missão diária disponível.")
+                        is DailyMissionUiState.Error -> {
+                            MissionFeedback(state.message, isError = true)
+                            Button(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
+                                Text("Tentar novamente")
                             }
-                            Text(label, modifier = Modifier.padding(start = 8.dp))
+                        }
+                        is DailyMissionUiState.Completed -> {
+                            MissionContent(state.mission)
+                            MissionFeedback("Missão de hoje concluída.", isError = false)
+                            MissionStreak(state.streak)
+                            if (state.xpEarned > 0) Text("+${state.xpEarned} XP pelo marco da sequência",
+                                color = GranaXPColors.PrimaryDark, fontWeight = FontWeight.SemiBold)
+                            if (state.leveledUp) Text("Você alcançou um novo nível!")
+                        }
+                        is DailyMissionUiState.Active -> {
+                            MissionContent(state.mission)
+                            MissionStreak(state.streak)
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                state.mission.orderedAlternatives().forEach { (id, label) ->
+                                    val selected = id in state.selectedAnswerIds
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        color = if (selected) GranaXPColors.Emerald100 else GranaXPColors.Gray50,
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp,
+                                            if (selected) GranaXPColors.Primary else GranaXPColors.Gray200),
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.clickable(enabled = !state.isSubmitting,
+                                                onClick = { onSelect(id) }).padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            if (state.mission.selectionMode == LessonSelectionMode.MULTIPLE) {
+                                                Checkbox(checked = selected, onCheckedChange = null,
+                                                    enabled = !state.isSubmitting)
+                                            } else {
+                                                RadioButton(selected = selected, onClick = null,
+                                                    enabled = !state.isSubmitting)
+                                            }
+                                            Text(label, modifier = Modifier.weight(1f).padding(start = 8.dp, end = 8.dp),
+                                                color = GranaXPColors.OnSurface)
+                                        }
+                                    }
+                                }
+                            }
+                            state.feedback?.let { MissionFeedback(it, isError = true) }
+                            state.error?.let { MissionFeedback(it, isError = true) }
+                            Button(
+                                onClick = onSubmit,
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = state.selectedAnswerIds.isNotEmpty() && !state.isSubmitting,
+                                shape = RoundedCornerShape(12.dp),
+                            ) { Text(if (state.isSubmitting) "Verificando..." else "Responder") }
                         }
                     }
-                    state.feedback?.let { Text(it) }
-                    state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    Button(
-                        onClick = onSubmit,
-                        enabled = state.selectedAnswerIds.isNotEmpty() && !state.isSubmitting,
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-                    ) { Text(if (state.isSubmitting) "Verificando..." else "Responder") }
                 }
             }
         }
@@ -147,15 +182,30 @@ fun DailyMissionPage(
 }
 
 @Composable
+private fun MissionStreak(streak: StreakModel) {
+    Text("🔥 Sequência: ${streak.currentStreak} dias · Recorde: ${streak.highestStreak} dias",
+        style = MaterialTheme.typography.bodySmall, color = GranaXPColors.Gray700)
+}
+
+@Composable
+private fun MissionFeedback(message: String, isError: Boolean) {
+    Surface(
+        color = if (isError) GranaXPColors.Red50 else GranaXPColors.Emerald100,
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Text(message, modifier = Modifier.fillMaxWidth().padding(12.dp),
+            color = if (isError) GranaXPColors.Error else GranaXPColors.Emerald800,
+            style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
 private fun MissionContent(mission: DailyMissionModel) {
-    Text(mission.title, style = MaterialTheme.typography.headlineSmall)
-    Text(mission.description)
+    Text(mission.title, style = MaterialTheme.typography.headlineSmall,
+        fontWeight = FontWeight.Bold, color = GranaXPColors.OnSurface)
+    Text(mission.description, color = GranaXPColors.Gray700)
     mission.chartImageUrl?.takeIf { it.isNotBlank() }?.let { url ->
-        AsyncImage(
-            model = url,
-            contentDescription = "Gráfico da missão diária",
-            modifier = Modifier.fillMaxWidth().height(220.dp),
-            contentScale = ContentScale.Fit,
-        )
+        AsyncImage(model = url, contentDescription = "Gráfico da missão diária",
+            modifier = Modifier.fillMaxWidth().height(220.dp), contentScale = ContentScale.Fit)
     }
 }

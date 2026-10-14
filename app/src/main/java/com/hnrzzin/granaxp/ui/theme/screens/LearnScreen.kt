@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,28 +16,37 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -43,15 +55,22 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -100,10 +119,20 @@ fun LearnScreen(
     val userUiState by userViewModel.uiState.collectAsStateWithLifecycle()
     val dailyMissionState by dailyMissionViewModel.uiState.collectAsStateWithLifecycle()
     var selection by remember { mutableStateOf<LessonSelection?>(null) }
-    var showingDailyMission by remember { mutableStateOf(false) }
+    var showingDailyMission by rememberSaveable { mutableStateOf(false) }
+    var selectedModuleId by rememberSaveable { mutableStateOf<String?>(null) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { dailyMissionViewModel.refresh() }
-    BackHandler(enabled = showingDailyMission) { showingDailyMission = false }
+    BackHandler(enabled = showingDailyMission || selection != null || selectedModuleId != null) {
+        when {
+            showingDailyMission -> showingDailyMission = false
+            selection != null -> {
+                selection = null
+                viewModel.clearLessonContent()
+            }
+            else -> selectedModuleId = null
+        }
+    }
 
     val currentLesson = selection?.let { selected ->
         (uiState as? LessonUiState.Success)
@@ -112,15 +141,7 @@ fun LearnScreen(
             ?: selected.lesson
     }
 
-    if (showingDailyMission) {
-        DailyMissionPage(
-            state = dailyMissionState,
-            onBack = { showingDailyMission = false },
-            onSelect = dailyMissionViewModel::selectAnswer,
-            onSubmit = dailyMissionViewModel::submitAnswer,
-            onRefresh = dailyMissionViewModel::refresh,
-        )
-    } else if (selection != null && currentLesson != null) {
+    if (selection != null && currentLesson != null) {
         LessonContentPage(
             lessonWithProgress = currentLesson,
             lessonNumber = selection!!.lessonNumber,
@@ -140,6 +161,9 @@ fun LearnScreen(
             uiState = uiState,
             dailyMissionState = dailyMissionState,
             userUiState = userUiState,
+            selectedModuleId = selectedModuleId,
+            onModuleClick = { selectedModuleId = it },
+            onModulesBack = { selectedModuleId = null },
             onNavigateToHome = onNavigateToHome,
             onNavigateToTransactions = onNavigateToTransactions,
             onNavigateToProfile = onNavigateToProfile,
@@ -152,6 +176,16 @@ fun LearnScreen(
                     lessonNumber = index + 1,
                 )
             },
+        )
+    }
+
+    if (showingDailyMission) {
+        DailyMissionDialog(
+            state = dailyMissionState,
+            onBack = { showingDailyMission = false },
+            onSelect = dailyMissionViewModel::selectAnswer,
+            onSubmit = dailyMissionViewModel::submitAnswer,
+            onRefresh = dailyMissionViewModel::refresh,
         )
     }
 
@@ -176,6 +210,9 @@ private fun LearningTrail(
     uiState: LessonUiState,
     dailyMissionState: DailyMissionUiState,
     userUiState: UserUiState,
+    selectedModuleId: String?,
+    onModuleClick: (String) -> Unit,
+    onModulesBack: () -> Unit,
     onNavigateToHome: () -> Unit,
     onNavigateToTransactions: () -> Unit,
     onNavigateToProfile: () -> Unit,
@@ -198,7 +235,7 @@ private fun LearningTrail(
                 selectedTab = AppTab.LEARN,
                 onNavigateToHome = onNavigateToHome,
                 onNavigateToTransactions = onNavigateToTransactions,
-                onNavigateToLearn = {},
+                onNavigateToLearn = onModulesBack,
                 onNavigateToProfile = onNavigateToProfile,
             )
         },
@@ -213,6 +250,9 @@ private fun LearningTrail(
                 onLessonClick = onLessonClick,
                 onDailyMissionClick = onDailyMissionClick,
                 onDailyMissionRefresh = onDailyMissionRefresh,
+                selectedModuleId = selectedModuleId,
+                onModuleClick = onModuleClick,
+                onModulesBack = onModulesBack,
             )
         }
     }
@@ -250,33 +290,61 @@ private fun LearningContent(
     onLessonClick: (LessonWithProgress, Int) -> Unit,
     onDailyMissionClick: () -> Unit,
     onDailyMissionRefresh: () -> Unit,
+    selectedModuleId: String?,
+    onModuleClick: (String) -> Unit,
+    onModulesBack: () -> Unit,
 ) {
-    LazyColumn(
+    val selectedModule = state.modules.find { it.module.idModule == selectedModuleId }
+    if (selectedModule != null) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(paddingValues)
+                .background(GranaXPColors.Background),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onModulesBack)
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null,
+                        tint = GranaXPColors.Primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Voltar aos módulos", color = GranaXPColors.Primary,
+                        fontWeight = FontWeight.SemiBold)
+                }
+            }
+            item { ModuleSection(module = selectedModule, onLessonClick = onLessonClick) }
+        }
+        return
+    }
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
         modifier = Modifier
             .fillMaxSize()
-            .padding(paddingValues),
+            .padding(paddingValues)
+            .background(GranaXPColors.Background),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { LearnHeaderCard() }
+        item(span = { GridItemSpan(maxLineSpan) }) { LearnHeaderCard(state) }
 
-        if (dailyMissionState !is DailyMissionUiState.Unavailable &&
-            dailyMissionState !is DailyMissionUiState.Loading) {
-            item {
-                DailyMissionEntry(
-                    state = dailyMissionState,
-                    onOpen = onDailyMissionClick,
-                    onRefresh = onDailyMissionRefresh,
-                )
-            }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            DailyMissionEntry(
+                state = dailyMissionState,
+                onOpen = onDailyMissionClick,
+                onRefresh = onDailyMissionRefresh,
+            )
         }
 
-        items(state.modules, key = { it.module.idModule }) { module ->
-            ModuleSection(module = module, onLessonClick = onLessonClick)
+        gridItems(state.modules, key = { it.module.idModule }) { module ->
+            ModuleCatalogCard(module = module, onClick = { onModuleClick(module.module.idModule) })
         }
 
         if (state.legacyLessons.isNotEmpty()) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 LegacyLessonsSection(
                     state = state,
                     showHeading = state.modules.isNotEmpty(),
@@ -286,31 +354,99 @@ private fun LearningContent(
         }
 
         if (state.modules.isEmpty() && state.legacyLessons.isEmpty()) {
-            item { EmptyLearningState() }
+            item(span = { GridItemSpan(maxLineSpan) }) { EmptyLearningState() }
         }
     }
 }
 
 @Composable
-private fun LearnHeaderCard() {
+private fun LearnHeaderCard(state: LessonUiState.Success) {
+    val total = state.lessons.size
+    val completed = state.lessons.count { it.isCompleted }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = GranaXPColors.Info),
+        shape = RoundedCornerShape(18.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
     ) {
-        Column(Modifier.padding(20.dp)) {
-            Text(
-                text = "Trilha de Aprendizado",
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
+        Column(Modifier.fillMaxWidth().background(Brush.horizontalGradient(
+            listOf(GranaXPColors.Primary, Color(0xFF169C90))
+        )).padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.EmojiEvents, contentDescription = null,
+                    tint = GranaXPColors.Yellow300, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("TRILHA DE APRENDIZADO", color = Color.White.copy(alpha = 0.9f),
+                    fontWeight = FontWeight.SemiBold, fontSize = 12.sp, letterSpacing = 0.7.sp)
+            }
+            Spacer(Modifier.height(6.dp))
+            Text("Escolha seu Caminho", color = Color.White,
+                fontWeight = FontWeight.Bold, fontSize = 22.sp)
+            Spacer(Modifier.height(18.dp))
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("$completed", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Text("concluídas", color = Color.White, fontSize = 12.sp)
+                }
+                Text("/", color = GranaXPColors.PrimaryLight, fontSize = 24.sp)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("$total", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Text("lições", color = Color.White, fontSize = 12.sp)
+                }
+                LinearProgressIndicator(
+                    progress = { if (total == 0) 0f else completed.toFloat() / total },
+                    modifier = Modifier.weight(1f).height(8.dp).clip(CircleShape),
+                    color = GranaXPColors.Yellow300,
+                    trackColor = GranaXPColors.PrimaryDark,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModuleCatalogCard(module: ModuleWithLessons, onClick: () -> Unit) {
+    val investments = module.module.idModule == "investimentos"
+    val colors = if (investments) listOf(Color(0xFF619BF8), Color(0xFF5145EB))
+        else listOf(Color(0xFF2BCE99), GranaXPColors.Primary)
+    Card(
+        modifier = Modifier.fillMaxWidth()
+            .semantics { contentDescription = "Abrir módulo: ${module.module.title}" }
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = GranaXPColors.Surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Box(
+            modifier = Modifier.fillMaxWidth().height(86.dp)
+                .background(Brush.horizontalGradient(colors)).padding(16.dp),
+            contentAlignment = Alignment.BottomStart,
+        ) {
+            Icon(
+                if (investments) Icons.AutoMirrored.Filled.TrendingUp else Icons.Default.AccountBalanceWallet,
+                contentDescription = null, tint = Color.White,
+                modifier = Modifier.size(36.dp),
             )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "Escolha um módulo e avance pelas lições no seu ritmo.",
-                color = Color.White.copy(alpha = 0.9f),
-                fontSize = 13.sp,
-            )
+        }
+        Column(Modifier.padding(12.dp)) {
+            Text(module.module.title, fontSize = 14.sp, lineHeight = 18.sp,
+                fontWeight = FontWeight.Bold, color = GranaXPColors.OnSurface,
+                minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(module.module.description, fontSize = 12.sp, lineHeight = 16.sp,
+                color = GranaXPColors.Gray500, minLines = 2, maxLines = 2,
+                overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("${module.completedLessons}/${module.totalLessons} lições",
+                    fontSize = 11.sp, color = GranaXPColors.Gray500)
+                Text("★ ${module.lessons.sumOf { it.lesson.xpReward }} XP",
+                    fontSize = 11.sp, color = Color(0xFFD38700), fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(6.dp))
+            LinearProgressIndicator(progress = { module.progress },
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                color = if (investments) GranaXPColors.Indigo700 else GranaXPColors.Primary,
+                trackColor = GranaXPColors.Gray100)
         }
     }
 }
@@ -482,7 +618,7 @@ private fun LessonListItem(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LessonContentPage(
+internal fun LessonContentPage(
     lessonWithProgress: LessonWithProgress,
     lessonNumber: Int,
     contentUiState: LessonContentUiState,
@@ -493,150 +629,151 @@ private fun LessonContentPage(
 ) {
     val lesson = lessonWithProgress.lesson
     val alreadyCompleted = lessonWithProgress.isCompleted
-    val contentLoaded = contentUiState is LessonContentUiState.Success &&
-        contentUiState.lessonId == lesson.id
+    val content = (contentUiState as? LessonContentUiState.Success)
+        ?.takeIf { it.lessonId == lesson.id }
+    // Presentation only: reopening starts at the first block; confirmations stay server-side.
+    var stepIndex by rememberSaveable(lesson.id) { mutableIntStateOf(0) }
+    val blocks = content?.blocks.orEmpty()
+    val pendingActivity = if (alreadyCompleted) -1 else blocks.indexOfFirst {
+        it.type.equals("ACTIVITY", ignoreCase = true) && it.id !in content?.completedActivityIds.orEmpty()
+    }
+    val lastReachableIndex = if (pendingActivity >= 0) pendingActivity else blocks.lastIndex
+    val currentIndex = stepIndex.coerceIn(0, lastReachableIndex.coerceAtLeast(0))
+    LaunchedEffect(currentIndex) { stepIndex = currentIndex }
+    val block = blocks.getOrNull(currentIndex)
+    val isActivity = block?.type.equals("ACTIVITY", ignoreCase = true)
+    val canContinue = content != null && block != null &&
+        (!isActivity || alreadyCompleted || block.id in content.completedActivityIds)
+    val isLastStep = content != null && (blocks.isEmpty() || currentIndex == blocks.lastIndex)
+    val goBack = {
+        if (currentIndex > 0) stepIndex = currentIndex - 1 else onBack()
+    }
+    BackHandler(onBack = goBack)
 
     Scaffold(
+        containerColor = GranaXPColors.Background,
         topBar = {
-            TopAppBar(
-                title = { Text(lesson.title, maxLines = 1) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+            Column {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(lesson.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text("+${lesson.xpReward} XP · ${lesson.duration} min",
+                                fontSize = 12.sp, color = GranaXPColors.Primary)
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = goBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+                        }
+                    },
+                )
+                if (blocks.isNotEmpty()) {
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .progressSemantics((currentIndex + 1).toFloat() / blocks.size),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            blocks.forEachIndexed { index, _ ->
+                                Box(Modifier.weight(1f).height(5.dp).clip(CircleShape)
+                                    .background(if (index <= currentIndex) GranaXPColors.Primary
+                                        else GranaXPColors.Gray200))
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text("Etapa ${currentIndex + 1} de ${blocks.size}",
+                            fontSize = 12.sp, color = GranaXPColors.Gray600)
                     }
-                },
-            )
+                }
+            }
+        },
+        bottomBar = {
+            if (content != null) {
+                Surface(modifier = Modifier.navigationBarsPadding(),
+                    color = GranaXPColors.Surface, shadowElevation = 4.dp) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                        if (isActivity && !canContinue) {
+                            Text("Responda corretamente à atividade para continuar.",
+                                fontSize = 12.sp, color = GranaXPColors.Gray700)
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        if (isLastStep && !alreadyCompleted && !content.canComplete) {
+                            Text("Conclua todas as atividades para finalizar a lição.",
+                                fontSize = 12.sp, color = GranaXPColors.Gray700)
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedButton(
+                                modifier = Modifier.weight(1f),
+                                enabled = currentIndex > 0,
+                                onClick = { stepIndex = currentIndex - 1 },
+                            ) { Text("Anterior") }
+                            when {
+                                !isLastStep -> Button(
+                                    modifier = Modifier.weight(1.5f),
+                                    enabled = canContinue,
+                                    onClick = { if (canContinue) stepIndex = currentIndex + 1 },
+                                ) { Text("Continuar") }
+                                alreadyCompleted -> Button(
+                                    modifier = Modifier.weight(1.5f),
+                                    onClick = onBack,
+                                ) { Text("Concluir revisão") }
+                                else -> Button(
+                                    modifier = Modifier.weight(1.5f),
+                                    enabled = content.canComplete,
+                                    onClick = onComplete,
+                                ) { Text("Concluir lição") }
+                            }
+                        }
+                    }
+                }
+            }
         },
     ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
-            contentPadding = PaddingValues(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            item {
-                LessonContentHeader(
-                    lessonNumber = lessonNumber,
-                    duration = lesson.duration,
-                    xpReward = lesson.xpReward,
-                    description = lesson.description,
-                    alreadyCompleted = alreadyCompleted,
-                )
-            }
-
-            when (contentUiState) {
-                is LessonContentUiState.Loading -> {
-                    if (contentUiState.lessonId == lesson.id) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(24.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                CircularProgressIndicator()
-                            }
-                        }
-                    }
-                }
-
-                is LessonContentUiState.Success -> {
-                    if (contentUiState.lessonId == lesson.id) {
-                        if (contentUiState.blocks.isEmpty()) {
-                            Unit
-                        } else {
-                            items(contentUiState.blocks, key = { it.id }) { block ->
-                                if (block.type.equals("ACTIVITY", ignoreCase = true)) {
-                                    LessonActivityCard(
-                                        block = block,
-                                        answerState = contentUiState.activityAnswers[block.id]
-                                            ?: ActivityAnswerState(),
-                                        isPersistedCompleted = block.id in
-                                            contentUiState.completedActivityIds,
-                                        onAnswerSelected = { answerId ->
-                                            onAnswerSelected(block.id, answerId)
-                                        },
-                                        onSubmit = { onSubmitAnswer(block.id) },
-                                    )
-                                } else {
-                                    LessonBlockCard(block)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                is LessonContentUiState.Error -> {
-                    if (contentUiState.lessonId == lesson.id) {
-                        item {
-                            Text(contentUiState.message, color = GranaXPColors.Error)
-                        }
-                    }
-                }
-
-                LessonContentUiState.Idle -> Unit
-            }
-
-            item {
-                HorizontalDivider(color = GranaXPColors.Gray200)
-                Spacer(Modifier.height(8.dp))
-                if (alreadyCompleted) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = GranaXPColors.Success,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "Lição concluída",
-                            color = GranaXPColors.Success,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                } else if (!contentLoaded) {
-                    if (contentUiState !is LessonContentUiState.Error) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = "Preparando a lição...",
-                                color = GranaXPColors.Gray600,
-                            )
-                        }
+        key(lesson.id, block?.id) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(paddingValues)
+                    .verticalScroll(rememberScrollState()).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                if (content == null) {
+                    val error = (contentUiState as? LessonContentUiState.Error)
+                        ?.takeIf { it.lessonId == lesson.id }
+                    if (error != null) Text(error.message, color = GranaXPColors.Error)
+                    else {
+                        CircularProgressIndicator()
+                        Text("Preparando a lição...", color = GranaXPColors.Gray600)
                     }
                 } else {
-                    val completionAvailable = (
-                        contentUiState as? LessonContentUiState.Success
-                    )?.takeIf { it.lessonId == lesson.id }?.canComplete == true
-                    if (contentLoaded && !completionAvailable) {
-                        Text(
-                            text = "Conclua todas as atividades para finalizar a lição.",
-                            color = GranaXPColors.Gray600,
-                            fontSize = 13.sp,
+                    if (currentIndex == 0) {
+                        LessonContentHeader(
+                            lessonNumber = lessonNumber,
+                            duration = lesson.duration,
+                            xpReward = lesson.xpReward,
+                            description = lesson.description,
+                            alreadyCompleted = alreadyCompleted,
                         )
-                        Spacer(Modifier.height(8.dp))
                     }
-                    Button(
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = contentLoaded && completionAvailable,
-                        onClick = onComplete,
-                    ) {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
+                    if (block == null) {
+                        Text("Nenhum bloco de conteúdo disponível.", color = GranaXPColors.Gray600)
+                    } else if (isActivity) {
+                        LessonActivityCard(
+                            block = block,
+                            answerState = content.activityAnswers[block.id] ?: ActivityAnswerState(),
+                            isPersistedCompleted = block.id in content.completedActivityIds,
+                            onAnswerSelected = { answerId -> onAnswerSelected(block.id, answerId) },
+                            onSubmit = { onSubmitAnswer(block.id) },
                         )
-                        Spacer(Modifier.width(6.dp))
-                        Text("Concluir lição")
+                    } else {
+                        LessonBlockCard(block)
                     }
                 }
             }
         }
     }
 }
-
 @Composable
 private fun LessonActivityCard(
     block: LessonBlock,
