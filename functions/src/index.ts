@@ -11,6 +11,10 @@ import {
 } from "firebase-admin/firestore";
 import {HttpsError, onCall, type CallableRequest} from "firebase-functions/v2/https";
 import {defineSecret} from "firebase-functions/params";
+import {onDocumentWritten} from "firebase-functions/v2/firestore";
+import {requireCallableUid, maySyncAchievements} from "./backendAccess";
+import {goalRewardClaim} from "./goalRewards";
+import {syncCountAchievements} from "./achievementAuthority";
 import {deleteAccountForUid} from "./accountDeletion";
 import {
   collectValidActivityIds, parseActivityValidationProofs, parseLessonActivityProofKeyring,
@@ -29,6 +33,22 @@ function readLessonProofKeyring(): ProofKeyring {
   try { return parseLessonActivityProofKeyring(lessonProofKeyring.value()); }
   catch { throw new HttpsError("failed-precondition", "Validação de atividades indisponível."); }
 }
+
+export const syncTransactionAchievements = onDocumentWritten(
+  {...callableOptions, document: "users/{uid}/transactions/{documentId}"}, async (event) => {
+    if (maySyncAchievements(event.params.uid)) await syncCountAchievements(db, event.params.uid, "TRANSACTION_COUNT");
+  });
+export const syncGoalAchievements = onDocumentWritten(
+  {...callableOptions, document: "users/{uid}/goals/{documentId}"}, async (event) => {
+    if (maySyncAchievements(event.params.uid)) await syncCountAchievements(db, event.params.uid, "GOAL_COUNT");
+  });
+export const syncLessonAchievements = onDocumentWritten(
+  {...lessonCallableOptions, document: "users/{uid}/lessonProgress/{documentId}"}, async (event) => {
+    if (!maySyncAchievements(event.params.uid) || event.data?.after.get("completionValidationVersion") !== 3 ||
+        !(event.data.after.get("isCompleted") === true || event.data.after.get("completed") === true)) return;
+    await syncCountAchievements(db, event.params.uid, "LESSON_COUNT",
+      {keyring: readLessonProofKeyring(), activities: lessonProofActivities});
+  });
 const GOAL_COMPLETION_XP = 200;
 const MAX_MONEY = 1_000_000_000_000;
 const DAILY_MISSION_BASE_UTC = Date.UTC(2026, 9, 1);
@@ -40,12 +60,6 @@ const missionDateFormatter = new Intl.DateTimeFormat("en-US", {
 });
 
 type XpResult = {xpEarned: number; leveledUp: boolean};
-
-function requireUid(request: CallableRequest<unknown>): string {
-  const uid = request.auth?.uid;
-  if (!uid) throw new HttpsError("unauthenticated", "É necessário estar autenticado.");
-  return uid;
-}
 
 function requireObject(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -181,7 +195,7 @@ async function assertLessonUnlocked(
 }
 
 async function moduleAchievementsToUnlock(
-  transaction: Transaction, uid: string, lessonId: string, moduleId: string,
+  transaction: Transaction, uid: string, lessonId: string, moduleId: string, keyring: ProofKeyring,
 ): Promise<{achievementId: string; progress: DocumentSnapshot}[]> {
   if (!moduleId) return []; // Legacy lessons do not belong to a module.
   const moduleLessons = await transaction.get(db.collection("lessons").where("moduleId", "==", moduleId));
@@ -192,11 +206,15 @@ async function moduleAchievementsToUnlock(
   const otherProgress = await Promise.all(otherLessons.map((lesson) =>
     lessonProgressDocuments(transaction, uid, lesson.id),
   ));
-  if (otherProgress.some((documents) => !documents.some((document) => {
-    const data = document.data()!;
-    return isCompleted(data) && data.completionValidationVersion === 3;
-  }))) {
-    return [];
+  for (const [i, documents] of otherProgress.entries()) {
+    const completed = documents.filter((document) => isCompleted(document.data()!) && document.get("completionValidationVersion") === 3);
+    if (!completed.length) return [];
+    const blocks = await transaction.get(otherLessons[i].ref.collection("blocks"));
+    try {
+      const activities = lessonProofActivities(blocks.docs);
+      if (!activities.length || collectValidActivityIds(completed.map((document) => document.data()!), activities,
+        {uid, lessonId: otherLessons[i].id}, keyring).length !== activities.length) return [];
+    } catch { return []; } // Historical flags or invalidated proofs cannot unlock a protected badge.
   }
   const definitions = await transaction.get(db.collection("achievements").where("referenceId", "==", moduleId));
   return Promise.all(definitions.docs
@@ -235,7 +253,7 @@ function validatedActivity(block: DocumentData): {alternatives: Record<string, s
 }
 
 export const openLesson = onCall(lessonCallableOptions, async (request) => {
-  const uid = requireUid(request);
+  const uid = requireCallableUid("openLesson", request);
   const lessonId = requireString(requireObject(request.data), "lessonId");
   const lessonRef = db.doc(`lessons/${lessonId}`);
   const userRef = db.doc(`users/${uid}`);
@@ -297,7 +315,7 @@ function lessonProofActivities(blocks: QueryDocumentSnapshot[]) {
 }
 
 export const submitLessonActivity = onCall(lessonCallableOptions, async (request) => {
-  const uid = requireUid(request);
+  const uid = requireCallableUid("submitLessonActivity", request);
   const data = requireObject(request.data);
   const lessonId = requireString(data, "lessonId");
   const blockId = requireString(data, "blockId");
@@ -359,7 +377,7 @@ export const submitLessonActivity = onCall(lessonCallableOptions, async (request
 });
 
 export const completeLesson = onCall(lessonCallableOptions, async (request) => {
-  const uid = requireUid(request);
+  const uid = requireCallableUid("completeLesson", request);
   const lessonId = requireString(requireObject(request.data), "lessonId");
   const lessonRef = db.doc(`lessons/${lessonId}`);
   const userRef = db.doc(`users/${uid}`);
@@ -403,7 +421,7 @@ export const completeLesson = onCall(lessonCallableOptions, async (request) => {
       }
       const moduleId = lessonSnapshot.data()?.moduleId;
       const achievements = await moduleAchievementsToUnlock(
-        transaction, uid, lessonId, typeof moduleId === "string" ? moduleId : "",
+        transaction, uid, lessonId, typeof moduleId === "string" ? moduleId : "", keyring,
       );
       const xp = applyXp(userSnapshot.data()!, xpReward);
       transaction.update(target.ref, {
@@ -432,7 +450,7 @@ export const completeLesson = onCall(lessonCallableOptions, async (request) => {
 });
 
 export const createGoal = onCall(callableOptions, async (request) => {
-  const uid = requireUid(request);
+  const uid = requireCallableUid("createGoal", request);
   const data = requireObject(request.data);
   const requestId = requireString(data, "requestId", 100);
   if (!/^[A-Za-z0-9_-]{8,100}$/.test(requestId)) {
@@ -464,14 +482,12 @@ export const createGoal = onCall(callableOptions, async (request) => {
         return {goalId: previous.goalId, xpEarned: 0, leveledUp: false};
       }
       const completed = targetAmount > 0 && currentAmount >= targetAmount;
-      const goal: DocumentData = {title, targetAmount, currentAmount, deadline, deadlineDate};
+      const goal: DocumentData = {title, targetAmount, currentAmount, deadline, deadlineDate,
+        rewardPolicyVersion: 1, createdAt: FieldValue.serverTimestamp()};
       if (completed) goal.completedAt = FieldValue.serverTimestamp();
       transaction.create(goalRef, goal);
       transaction.create(requestRef, {goalId: goalRef.id, fingerprint, createdAt: FieldValue.serverTimestamp()});
-      if (!completed) return {goalId: goalRef.id, xpEarned: 0, leveledUp: false};
-      const xp = applyXp(userSnapshot.data()!, GOAL_COMPLETION_XP);
-      transaction.update(userRef, xp.updates);
-      return {goalId: goalRef.id, xpEarned: GOAL_COMPLETION_XP, leveledUp: xp.leveledUp};
+      return {goalId: goalRef.id, xpEarned: 0, leveledUp: false};
     });
     return result;
   } catch (error) {
@@ -480,7 +496,7 @@ export const createGoal = onCall(callableOptions, async (request) => {
 });
 
 export const updateGoalProgress = onCall(callableOptions, async (request) => {
-  const uid = requireUid(request);
+  const uid = requireCallableUid("updateGoalProgress", request);
   const data = requireObject(request.data);
   const goalId = requireString(data, "goalId");
   const amountToAdd = requireMoney(data, "amountToAdd", false);
@@ -501,10 +517,12 @@ export const updateGoalProgress = onCall(callableOptions, async (request) => {
         throw new HttpsError("invalid-argument", "O valor acumulado da meta é inválido.");
       }
       const isCompleteNow = goal.targetAmount > 0 && newCurrentAmount >= goal.targetAmount;
+      const claim = await goalRewardClaim(transaction, db, uid, goalId, goal, newCurrentAmount);
       const updates: DocumentData = {currentAmount: newCurrentAmount};
       if (isCompleteNow && goal.completedAt == null) updates.completedAt = FieldValue.serverTimestamp();
       transaction.update(goalRef, updates);
-      if (wasComplete || !isCompleteNow || goal.completedAt != null) return {xpEarned: 0, leveledUp: false};
+      if (wasComplete || !isCompleteNow || !claim) return {xpEarned: 0, leveledUp: false};
+      transaction.create(claim, {goalId, xpEarned: GOAL_COMPLETION_XP, claimedAt: FieldValue.serverTimestamp()});
       const xp = applyXp(userSnapshot.data()!, GOAL_COMPLETION_XP);
       transaction.update(userRef, xp.updates);
       return {xpEarned: GOAL_COMPLETION_XP, leveledUp: xp.leveledUp};
@@ -515,7 +533,7 @@ export const updateGoalProgress = onCall(callableOptions, async (request) => {
 });
 
 export const updateGoalDetails = onCall(callableOptions, async (request) => {
-  const uid = requireUid(request);
+  const uid = requireCallableUid("updateGoalDetails", request);
   const data = requireObject(request.data);
   const goalId = requireString(data, "goalId");
   const title = requireString(data, "title");
@@ -542,7 +560,7 @@ export const updateGoalDetails = onCall(callableOptions, async (request) => {
 });
 
 export const deleteAccount = onCall(callableOptions, async (request) => {
-  const uid = requireUid(request);
+  const uid = requireCallableUid("deleteAccount", request);
   try {
     await deleteAccountForUid(uid, db, auth);
     return {deleted: true};
@@ -696,7 +714,7 @@ function validatedDailyMission(document: QueryDocumentSnapshot) {
 }
 
 export const openDailyMission = onCall(callableOptions, async (request) => {
-  const uid = requireUid(request);
+  const uid = requireCallableUid("openDailyMission", request);
   const {date, daysSinceBase} = missionDayFromDeviceTime(requireObject(request.data));
   if (daysSinceBase < 0) return {available: false};
   try {
@@ -730,7 +748,7 @@ export const openDailyMission = onCall(callableOptions, async (request) => {
 });
 
 export const submitDailyMissionAnswer = onCall(callableOptions, async (request) => {
-  const uid = requireUid(request);
+  const uid = requireCallableUid("submitDailyMissionAnswer", request);
   const data = requireObject(request.data);
   const {date, daysSinceBase} = missionDayFromDeviceTime(data);
   if (daysSinceBase < 0) throw new HttpsError("failed-precondition", "Ciclo de missões ainda não iniciado.");

@@ -1,8 +1,103 @@
 # Android com Firebase Emulator Suite
 
+## V1 Spark vigente (E6.9C, 15/10/2026)
+
+O aplicativo principal usa **Authentication + Firestore**. O emulador de
+Functions na porta 5001 não é requisito; a pasta `functions/` documenta a
+arquitetura anterior. Veja [o contrato Spark](spark-v1.md) para a matriz das
+nove callables e os limites de XP, gabaritos e conquistas.
+
+No Android Studio, abra um AVD dedicado em **Running Devices**, compile o APK
+debug com `-PuseFirebaseEmulators=true`, instale o APK completo e execute os
+testes instrumentados nele. O opt-in aponta apenas para `demo-granaxp`.
+Execute a suíte local isolada de Auth e Firestore em `127.0.0.1:9099` e
+`127.0.0.1:8080`, ou redirecione essas portas do dispositivo para uma suíte
+dedicada com `adb reverse`. Na E6.9C, o AVD `GranaXP_E6_9C_Spark` usou
+`emulator-5570`, com `tcp:9099 -> tcp:19099` e `tcp:8080 -> tcp:18080`.
+O script `firebase-emulator-adb.ps1` gerencia somente **9099 e 8080**.
+Confira `adb devices`, nome do AVD, projeto, reverse, hash do APK instalado
+e JUnit real antes de atribuir o resultado à V1 Spark.
+Não execute o aplicativo local sem esses endpoints: o opt-in não faz fallback
+para `granaxp-d7927`.
+
+O catálogo aprovado é publicado apenas no emulador de ensaio: 2 módulos,
+3 lições históricas, 34 blocos, 9 atividades, 7 missões e controle. O
+publicador `educational-publication-cli.mjs` permanece restrito a
+`demo-granaxp`/`127.0.0.1:18080` e `127.0.0.1:28080` para aplicação local;
+não há executor real. Os
+gabaritos dos blocos e missões são **públicos para usuários autenticados**
+depois da publicação no Firestore, mas não são embutidos no APK.
+
+O gate `scripts/firebase-instrumented-gate.mjs` aceita `--mode local` para os
+quatro testes de configuração e catálogo **vazio** numa suíte demo fresca;
+`--mode spark` seleciona 22 testes instrumentados, incluindo lições, missão,
+metas e UI, depois de publicar o catálogo no emulador; `--mode normal`
+seleciona dois testes de configuração sem operação remota. Exemplo no AVD
+dedicado, a partir da raiz do repositório e com Node 22:
+
+```powershell
+& $nodeFile scripts/firebase-instrumented-gate.mjs --serial emulator-5570 --mode spark --auth-port 19099 --firestore-port 18080
+```
+
+Substitua `$nodeFile` pelo caminho local do Node 22 descrito no HANDOFF. O
+gate escreve `success.json` e o JUnit bruto em `app/build/reports/instrumented-gate/`.
+Não rode o contrato de catálogo vazio sobre catálogo publicado.
+
+Os testes da arquitetura anterior que exigem Functions/HMAC são históricos e
+devem ser executados em suíte separada. Não use a suíte interativa E6.8 como
+base descartável para testes que alteram catálogo ou contas. A seção abaixo
+registra o procedimento **histórico E6.8 com Functions** e não descreve o Run
+normal da V1 Spark.
+
+## Histórico E6.8 — procedimento anterior com Functions
+
 Este ambiente usa **somente `demo-granaxp`**, sem recursos reais. O opt-in
 `-PuseFirebaseEmulators=true` afeta apenas debug. Release permanece normal.
 Não altere `google-services.json`, targetSdk ou permissões para testar localmente.
+
+## Executar o aplicativo principal com o catálogo aprovado
+
+O mesmo código do produto oferece a grade de módulos, lições por etapas,
+atividades, Missão Diária em modal, progresso e conquistas. A execução local do
+principal mantém `applicationId=com.hnrzzin.granaxp`; o APK histórico separado
+da apresentação usa `com.hnrzzin.granaxp.demo`. Não copie esse sufixo, contas,
+progresso, configuração Firebase ou segredo fictício para a configuração normal.
+
+Use um AVD dedicado ao principal e a suíte local protegida indicada no HANDOFF
+operacional. Confira projeto `demo-granaxp`, endpoints abaixo, processo da suíte
+e proteção dos arquivos de configuração antes de executar. Preserve a suíte
+interativa e seus dados: não reinicie, importe ou rode testes que substituem
+catálogos sobre uma sessão em uso. O runner `functions-emulator-runner.mjs`
+permanece sob a restrição de isolamento I-I1 e não deve ser usado neste fluxo.
+
+1. Compile com `-PuseFirebaseEmulators=true :app:assembleDebug`. O opt-in é
+   por invocação; não o grave nas propriedades globais do Gradle.
+2. Confira `USE_FIREBASE_EMULATORS=true` no BuildConfig gerado e, no Manifest
+   do APK, `FirebaseInitProvider` desativado e cleartext habilitado. Registre o
+   SHA-256 de `app/build/outputs/apk/debug/app-debug.apk`.
+3. Confirme o nome do AVD com `adb -s <serial> emu avd name` e prepare os três
+   encaminhamentos com `firebase-emulator-adb.ps1`. Instale o APK completo nesse
+   dispositivo; não use overlay ou Apply Changes como prova da identidade.
+4. Confira o hash do `base.apk` instalado e o teste
+   `FirebaseEnvironmentTest#startupSelectsOneCoherentEnvironmentBeforeRepositoriesRun`,
+   com confirmação de execução em modo `local`, antes do ensaio funcional.
+5. Abra `com.hnrzzin.granaxp/.MainActivity` por ADB. Running Devices permite
+   visualizar e controlar esse aplicativo dentro do Android Studio.
+
+O catálogo precisa existir na suíte: 2 módulos, 3 lições com IDs históricos,
+34 blocos incluindo 9 atividades, 7 missões e `learningCatalogControl/current`.
+Ausência de dados não é corrigida por uma nova UI. Use somente o catálogo
+aprovado e as contas locais permitidas para o ensaio; a publicação real tem
+autorização e gates próprios.
+
+**O botão Run padrão não conserva o opt-in da compilação anterior.** Sem a
+propriedade explícita, debug volta à configuração Firebase normal. Compilar ou
+abrir outro APK sobre o AVD de prova muda a versão observada. Ao finalizar o
+ensaio, um build com `-PuseFirebaseEmulators=false` pode restabelecer os artefatos
+normais sem substituir o aplicativo local que permanece instalado.
+
+A equivalência deve ser comprovada por execução do principal, com APK/AVD,
+catálogo e confirmação dos fluxos registrados. Esse ensaio não valida produção.
 
 ## Preparação reproduzível
 

@@ -7,7 +7,6 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.MemoryCacheSettings
-import com.google.firebase.functions.FirebaseFunctions
 
 class GranaXPApplication : Application() {
     override fun onCreate() {
@@ -23,7 +22,7 @@ class GranaXPApplication : Application() {
             .build())
         check(app.options.projectId == "demo-granaxp")
 
-        // adb reverse forwards the device loopback to the three host emulators.
+        // adb reverse forwards the device loopback to Auth and Firestore.
         FirebaseAuth.getInstance(app).useEmulator("127.0.0.1", 9099)
         FirebaseFirestore.getInstance(app).apply {
             useEmulator("127.0.0.1", 8080)
@@ -31,6 +30,5 @@ class GranaXPApplication : Application() {
                 .setLocalCacheSettings(MemoryCacheSettings.newBuilder().build())
                 .build()
         }
-        FirebaseFunctions.getInstance(app, "southamerica-east1").useEmulator("127.0.0.1", 5001)
     }
 }

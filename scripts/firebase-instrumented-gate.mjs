@@ -6,19 +6,27 @@ import {fileURLToPath} from 'node:url';
 import {currentRunLogcat, expectedTests, validateInstrumentation} from './instrumentation-result.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const options = {adb: 'adb', mode: 'local'};
+const options = {adb: 'adb', mode: 'local', authPort: '9099', firestorePort: '8080'};
 for (let index = 2; index < process.argv.length; index += 2) {
   const key = process.argv[index];
   const value = process.argv[index + 1];
-  if (!['--serial', '--adb', '--mode'].includes(key) || !value) throw new Error(`Invalid option: ${key}`);
-  options[key.slice(2)] = value;
+  if (!['--serial', '--adb', '--mode', '--auth-port', '--firestore-port'].includes(key) || !value) {
+    throw new Error(`Invalid option: ${key}`);
+  }
+  options[key === '--auth-port' ? 'authPort' : key === '--firestore-port' ? 'firestorePort' : key.slice(2)] = value;
 }
 if (!options.serial || !/^[\w.:-]+$/.test(options.serial)) throw new Error('Provide --serial explicitly.');
+for (const port of [options.authPort, options.firestorePort]) {
+  if (!/^\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
+    throw new Error('Invalid local emulator port.');
+  }
+}
 expectedTests(options.mode);
 const token = randomUUID();
 const logs = join(root, 'app/build/reports/instrumented-gate', `${options.mode}-${Date.now()}-${token}`);
 mkdirSync(logs, {recursive: true});
 writeFileSync(join(logs, 'request.json'), JSON.stringify({mode: options.mode, serial: options.serial,
+  authPort: options.authPort, firestorePort: options.firestorePort,
   token, expected: expectedTests(options.mode), startedAt: new Date().toISOString()}, null, 2));
 
 function run(command, args, name, timeout = 180_000) {
@@ -50,12 +58,12 @@ async function gate() {
   const device = await adb(['get-state'], 'device');
   requireSuccess(device, 'Device check');
   if (device.stdout.trim() !== 'device') throw new Error('Device is unavailable.');
-  if (options.mode === 'local') {
+  if (options.mode !== 'normal') {
     const forwards = await adb(['reverse', '--list'], 'forwards');
     requireSuccess(forwards, 'ADB forwarding inventory');
-    for (const port of [9099, 8080, 5001]) {
-      if (!new RegExp(`^\\S+\\s+tcp:${port}\\s+tcp:${port}\\s*$`, 'm').test(forwards.stdout)) {
-        throw new Error(`Missing GranaXP forwarding: ${port}`);
+    for (const [devicePort, hostPort] of [[9099, options.authPort], [8080, options.firestorePort]]) {
+      if (!new RegExp(`^\\S+\\s+tcp:${devicePort}\\s+tcp:${hostPort}\\s*$`, 'm').test(forwards.stdout)) {
+        throw new Error(`Missing GranaXP forwarding: ${devicePort} -> ${hostPort}`);
       }
     }
   }
@@ -64,7 +72,7 @@ async function gate() {
   console.log(`Building debug APKs (${options.mode})...`);
   // Same wrapper as gradlew, without passing a Windows batch command through a shell.
   const build = await run(java, ['-Dorg.gradle.appname=gradlew', '-jar', join(root, 'gradle/wrapper/gradle-wrapper.jar'),
-    `-PuseFirebaseEmulators=${options.mode === 'local'}`, ':app:assembleDebug',
+    `-PuseFirebaseEmulators=${options.mode !== 'normal'}`, ':app:assembleDebug',
     ':app:assembleDebugAndroidTest', '--console=plain'], 'gradle', 600_000);
   requireSuccess(build, 'Gradle build');
   for (const [name, path, testApk] of [
@@ -97,13 +105,13 @@ async function gate() {
   let result;
   try {
     console.log(`Executing ${expectedTests(options.mode).length} instrumented tests...`);
-    // Local mode runs the whole package, without class/size/log discovery filters.
+    // The empty-catalog contract has its own four-test gate. Spark catalog
+    // integration runs separately after publication into the demo emulator.
     const args = ['shell', 'am', 'instrument', '-r', '-w', '-e', 'granaxpGateToken', token,
-      '-e', 'granaxpGateMode', options.mode];
-    // Normal mode runs only the existing read-only configuration tests.
-    if (options.mode === 'normal') args.push('-e', 'class', expectedTests('normal').join(','));
+      '-e', 'granaxpGateMode', options.mode === 'spark' ? 'local' : options.mode];
+    args.push('-e', 'class', expectedTests(options.mode).join(','));
     args.push('com.hnrzzin.granaxp.test/androidx.test.runner.AndroidJUnitRunner');
-    result = await adb(args, 'instrumentation');
+    result = await adb(args, 'instrumentation', 900_000);
     await new Promise(resolveDelay => setTimeout(resolveDelay, 250));
   } finally {
     stoppingLogcat = true;

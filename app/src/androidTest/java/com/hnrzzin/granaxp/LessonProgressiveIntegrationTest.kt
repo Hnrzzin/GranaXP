@@ -18,6 +18,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.UserModel
 import com.hnrzzin.granaxp.repositories.AuthRepository
 import com.hnrzzin.granaxp.repositories.LessonRepository
+import com.hnrzzin.granaxp.repositories.UserRepository
 import com.hnrzzin.granaxp.ui.theme.screens.LearnScreen
 import com.hnrzzin.granaxp.viewmodel.*
 import kotlinx.coroutines.runBlocking
@@ -43,23 +44,19 @@ class LessonProgressiveIntegrationTest {
         assertTrue(BuildConfig.USE_FIREBASE_EMULATORS)
         assertEquals("demo-granaxp", FirebaseApp.getInstance().options.projectId)
         assertEquals("127.0.0.1:8080", FirebaseFirestore.getInstance().firestoreSettings.host)
-        val fixtures = JSONObject(checkNotNull(InstrumentationRegistry.getArguments()
-            .getString("granaxpLearningFixtures")) { "Forneça as fixtures locais pelo runner de instrumentação." })
-        val answerFixture = fixtures.getJSONObject("answers")
-        val rightAnswers = answerFixture.keys().asSequence().associateWith(answerFixture::getString)
-        val lessonFixture = fixtures.getJSONArray("lessons")
-        val cases = (0 until lessonFixture.length()).map { index ->
-            val item = lessonFixture.getJSONObject(index)
-            Triple(item.getString("id"), item.getInt("level"), item.getInt("xp"))
-        }
+        val cases = listOf(
+            Triple("2iT6j1pA0vvq62oX7jO7", 1, 50),
+            Triple("gMmIv1XNtMhIrhBzDFKc", 2, 50),
+            Triple("Eo6rq9c4HDAtZRR6TAjp", 3, 80),
+        )
         assertEquals(3, cases.size)
-        assertEquals(9, rightAnswers.size)
         val auth = AuthRepository()
         auth.logout()
         val email = "e5-ui-${System.nanoTime()}@example.test"
         val uid = auth.registerWithEmail(email, "test-${UUID.randomUUID()}")
         auth.createUserProfile(UserModel(id = uid, name = "Ensaio local", email = email))
         val repository = LessonRepository(uid)
+        val displayProfile = UserRepository(uid)
         val store = ViewModelStore()
         val witnessed = mutableListOf<String>()
         fun witness(step: String) { witnessed += step; Log.i("E5UiWitness", "PASS $step") }
@@ -74,6 +71,7 @@ class LessonProgressiveIntegrationTest {
             compose.setContent { MaterialTheme { LearnScreen(trail, daily, {}, {}, user, {}) } }
             waitForText("Escolha seu Caminho")
             val lessons = repository.getLessons().associateBy { it.id }
+            assertEquals(cases.map { it.first }.toSet(), lessons.keys)
             compose.onNodeWithContentDescription("Abrir módulo: Organização Financeira").performClick()
             compose.onNodeWithText("Reserva de Emergência").assertIsNotEnabled()
             witness("reserva_bloqueada_antes_da_primeira_licao")
@@ -105,7 +103,7 @@ class LessonProgressiveIntegrationTest {
                     if (block.type.equals("ACTIVITY", ignoreCase = true)) {
                         val button = if (index == opened.blocks.lastIndex) "Concluir lição" else "Continuar"
                         compose.onNodeWithText(button).assertIsNotEnabled()
-                        val right = rightAnswers.getValue(block.id)
+                        val right = block.correctAnswerIds.single()
                         val wrongLabel = block.alternatives.entries.first { it.key != right }.value
                         compose.onNodeWithText(wrongLabel).performScrollTo().performClick()
                         compose.onNodeWithText("Responder").performScrollTo().performClick()
@@ -141,10 +139,11 @@ class LessonProgressiveIntegrationTest {
                 }
                 compose.onNodeWithText("Concluir lição").assertIsEnabled().performClick()
                 waitForText("Voltar aos módulos")
-                val profile = auth.getUserProfile(uid)!!
+                val profile = displayProfile.getDisplayUser()!!
                 assertEquals(expectedLevel, profile.level); assertEquals(expectedXp, profile.xp)
+                assertEquals(0, auth.getUserProfile(uid)!!.xp)
                 assertEquals(0, repository.completeLesson(id).xpEarned)
-                val same = auth.getUserProfile(uid)!!
+                val same = displayProfile.getDisplayUser()!!
                 assertEquals(profile.level, same.level); assertEquals(profile.xp, same.xp)
                 witness("${id}_conclusao_ui_retorna_modulo_repeticao_zero_xp")
             }

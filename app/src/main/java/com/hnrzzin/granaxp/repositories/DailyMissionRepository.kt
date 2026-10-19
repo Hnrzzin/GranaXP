@@ -1,10 +1,18 @@
 package com.hnrzzin.granaxp.repositories
 
-import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Source
 import com.hnrzzin.granaxp.model.ActivityType
 import com.hnrzzin.granaxp.model.DailyMissionModel
 import com.hnrzzin.granaxp.model.LessonSelectionMode
 import com.hnrzzin.granaxp.model.StreakModel
+import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import kotlinx.coroutines.tasks.await
 
 data class DailyMissionOpenResult(
@@ -25,12 +33,62 @@ data class DailyMissionSubmissionResult(
 )
 
 class DailyMissionRepository {
-    private val functions: FirebaseFunctions = FirebaseFunctionsProvider.instance
+    private val db = FirebaseFirestore.getInstance()
+    private val auth = FirebaseAuth.getInstance()
+
+    private fun userId(): String = checkNotNull(auth.currentUser?.uid) { "Entre na conta para abrir a missão." }
+
+    private fun missionDate(epochMillis: Long): String = Instant.fromEpochMilliseconds(epochMillis)
+        .toLocalDateTime(TimeZone.of("America/Sao_Paulo")).date.toString()
+
+    private fun DocumentSnapshot.asMission(): DailyMissionModel {
+        val alternatives = (get("alternatives") as? Map<*, *>)?.entries
+            ?.associate { (key, value) ->
+                (key as? String ?: error("Alternativa inválida.")) to
+                    (value as? String ?: error("Texto de alternativa inválido."))
+            }.orEmpty()
+        val answers = (get("correctAnswerIds") as? List<*>)
+            ?.map { it as? String ?: error("Gabarito inválido.") }?.toSet().orEmpty()
+        check(alternatives.isNotEmpty() && answers.isNotEmpty() && answers.all { it in alternatives }) {
+            "Missão inválida no catálogo."
+        }
+        return DailyMissionModel(
+            id = id,
+            title = getString("title") ?: error("Título da missão ausente."),
+            description = getString("description") ?: error("Enunciado ausente."),
+            activityType = ActivityType.valueOf(getString("activityType") ?: error("Tipo ausente.")),
+            alternatives = alternatives,
+            selectionMode = if (answers.size > 1) LessonSelectionMode.MULTIPLE else LessonSelectionMode.SINGLE,
+            chartImageUrl = getString("chartImageUrl"),
+            correctAnswerIds = answers,
+            feedback = getString("feedback") ?: "Tente novamente.",
+        )
+    }
+
+    private suspend fun completedDates(uid: String): List<String> =
+        db.collection("users").document(uid).collection("dailyMissionProgress")
+            .get(Source.SERVER).await().documents.filter { it.getBoolean("isCompleted") == true }
+            .map { it.id }
 
     suspend fun openDailyMission(deviceTimeMillis: Long): DailyMissionOpenResult {
-        val result = functions.getHttpsCallable("openDailyMission")
-            .call(mapOf("deviceTimeMillis" to deviceTimeMillis)).await()
-        return parseDailyMissionOpenResult(result.data)
+        val uid = userId()
+        val date = missionDate(deviceTimeMillis)
+        val offset = LocalDate.parse(date).toEpochDays() - LocalDate(2026, 10, 1).toEpochDays()
+        if (offset < 0) return DailyMissionOpenResult(available = false)
+        val catalog = db.collection("dailyMissions").orderBy("order")
+            .get(Source.SERVER).await().documents
+        if (catalog.isEmpty()) return DailyMissionOpenResult(available = false)
+        val mission = catalog[offset % catalog.size].asMission()
+        val progress = db.collection("users").document(uid).collection("dailyMissionProgress")
+            .document(date).get(Source.SERVER).await()
+        check(!progress.exists() || progress.getString("missionId") == mission.id) {
+            "A missão do dia mudou; atualize o catálogo."
+        }
+        return DailyMissionOpenResult(
+            available = true, date = date, mission = mission,
+            isCompleted = progress.getBoolean("isCompleted") == true,
+            streak = educationalStreak(completedDates(uid), date),
+        )
     }
 
     suspend fun submitAnswer(
@@ -40,14 +98,46 @@ class DailyMissionRepository {
         selectedAnswerIds: Set<String>,
     ): DailyMissionSubmissionResult {
         require(selectedAnswerIds.isNotEmpty()) { "Selecione uma alternativa." }
-        val result = functions.getHttpsCallable("submitDailyMissionAnswer")
-            .call(mapOf(
-                "deviceTimeMillis" to deviceTimeMillis,
-                "expectedDate" to expectedDate,
-                "expectedMissionId" to expectedMissionId,
-                "selectedAnswerIds" to selectedAnswerIds.sorted(),
-            )).await()
-        return parseDailyMissionSubmissionResult(result.data)
+        val uid = userId()
+        val opened = openDailyMission(deviceTimeMillis)
+        val mission = checkNotNull(opened.mission) { "Missão indisponível." }
+        check(opened.date == expectedDate && mission.id == expectedMissionId) {
+            "A missão do dia mudou. Atualize a tela."
+        }
+        if (opened.isCompleted) return DailyMissionSubmissionResult(
+            correct = true, alreadyCompleted = true, streak = opened.streak,
+        )
+        if (!isCorrectEducationalAnswer(selectedAnswerIds, mission.correctAnswerIds,
+                mission.alternatives.keys)) {
+            return DailyMissionSubmissionResult(false, false, feedback = mission.feedback)
+        }
+        val progressRef = db.collection("users").document(uid).collection("dailyMissionProgress")
+            .document(expectedDate)
+        val firstCompletion = try {
+            db.runTransaction { transaction ->
+                val previous = transaction.get(progressRef)
+                if (previous.exists()) {
+                    check(previous.getString("missionId") == expectedMissionId) { "Missão alterada." }
+                    false
+                } else {
+                    transaction.set(progressRef, mapOf(
+                        "missionId" to expectedMissionId,
+                        "date" to expectedDate,
+                        "isCompleted" to true,
+                        "completedAt" to FieldValue.serverTimestamp(),
+                    ))
+                    true
+                }
+            }.await()
+        } catch (failure: Exception) {
+            val saved = progressRef.get(Source.SERVER).await()
+            if (saved.getBoolean("isCompleted") == true && saved.getString("missionId") == expectedMissionId) false
+            else throw failure
+        }
+        return DailyMissionSubmissionResult(
+            correct = true, alreadyCompleted = !firstCompletion,
+            streak = educationalStreak(completedDates(uid), expectedDate),
+        )
     }
 }
 

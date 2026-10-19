@@ -55,7 +55,6 @@ fun ProfileScreen(
     }
 
     var showEditNameDialog by remember { mutableStateOf(false) }
-    var showDeleteConfirmSheet by remember { mutableStateOf(false) }
     var achievementsExpanded by remember { mutableStateOf(true) }
 
     LaunchedEffect(actionState) {
@@ -119,7 +118,6 @@ fun ProfileScreen(
                         SettingsSection(
                             onEditName = { showEditNameDialog = true },
                             onLogout = onLogout,
-                            onDeleteAccount = { showDeleteConfirmSheet = true }
                         )
 
                         AchievementsAccordion(
@@ -149,15 +147,6 @@ fun ProfileScreen(
         )
     }
 
-    if (showDeleteConfirmSheet) {
-        DeleteAccountSheet(
-            onConfirm = {
-                showDeleteConfirmSheet = false
-                userViewModel.deleteAccount()
-            },
-            onDismiss = { showDeleteConfirmSheet = false }
-        )
-    }
 }
 
 // ---------- Header com gradiente ----------
@@ -247,7 +236,7 @@ private fun ProfileHeaderGradient(
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        "Nível $level · $xp XP",
+                        "Nível $level · $xp XP educacional",
                         color = GranaXPColors.White.copy(alpha = 0.75f),
                         fontSize = 12.sp
                     )
@@ -286,7 +275,6 @@ private fun ProfileHeaderGradient(
 private fun SettingsSection(
     onEditName: () -> Unit,
     onLogout: () -> Unit,
-    onDeleteAccount: () -> Unit
 ) {
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -302,13 +290,15 @@ private fun SettingsSection(
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 1.sp
             )
-            SettingsItem(Icons.Default.Edit, GranaXPColors.EditIconBg, GranaXPColors.Primary, "Alterar nome", "Edite como seu nome aparece no app", GranaXPColors.Gray800, onEditName)
+            SettingsItem(Icons.Default.Edit, GranaXPColors.EditIconBg, GranaXPColors.Primary, "Alterar nome", "Edite como seu nome aparece no app", GranaXPColors.Gray800, onClick = onEditName)
             HorizontalDivider(color = GranaXPColors.Gray100, modifier = Modifier.padding(horizontal = 16.dp))
             SettingsItem(Icons.Default.Shield, GranaXPColors.PrivacyIconBg, GranaXPColors.Yellow500, "Privacidade & Segurança", "Gerencie suas preferências", GranaXPColors.Gray800) { }
             HorizontalDivider(color = GranaXPColors.Gray100, modifier = Modifier.padding(horizontal = 16.dp))
-            SettingsItem(Icons.AutoMirrored.Filled.Logout, GranaXPColors.Red50, GranaXPColors.Red500, "Sair da conta", "Encerre a sessão atual", GranaXPColors.Red500, onLogout)
+            SettingsItem(Icons.AutoMirrored.Filled.Logout, GranaXPColors.Red50, GranaXPColors.Red500, "Sair da conta", "Encerre a sessão atual", GranaXPColors.Red500, onClick = onLogout)
             HorizontalDivider(color = GranaXPColors.Gray100, modifier = Modifier.padding(horizontal = 16.dp))
-            SettingsItem(Icons.Default.DeleteForever, GranaXPColors.Red50, GranaXPColors.Red500, "Excluir conta", "Esta ação é irreversível", GranaXPColors.Red500, onDeleteAccount)
+            SettingsItem(Icons.Default.DeleteForever, GranaXPColors.Red50, GranaXPColors.Red500,
+                "Excluir conta", "Indisponível nesta versão Spark", GranaXPColors.Red500,
+                onClick = {}, enabled = false)
         }
     }
 }
@@ -321,13 +311,14 @@ private fun SettingsItem(
     title: String,
     subtitle: String,
     titleColor: Color,
-    onClick: () -> Unit
+    enabled: Boolean = true,
+    onClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

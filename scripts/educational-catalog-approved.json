@@ -1,0 +1,194 @@
+{
+  "version": 1,
+  "source": "E5 / E2.5 approved local catalog",
+  "bundleSha256": "01353e49cfa38b61c791eaad1e75ad8c6f34ae949f3e9aae7bb1fff9c4fe99ae",
+  "learning": [
+    {
+      "path": "modules/organizacao_financeira",
+      "sha256": "4d6b0ea22a30d03b8a4c32625f858fb6f53a54690d41a84b5d6a0247028e1324"
+    },
+    {
+      "path": "modules/investimentos",
+      "sha256": "25800f99ca5976ed26d050e6509cefce1beea590655eeda43a4f486c45cdcc03"
+    },
+    {
+      "path": "lessons/2iT6j1pA0vvq62oX7jO7",
+      "sha256": "d0c74a0b2b26aa129446edf34a8dd77796db901df72db9885aeb2d23ea0aa991"
+    },
+    {
+      "path": "lessons/gMmIv1XNtMhIrhBzDFKc",
+      "sha256": "6b199e50a06947aab2638008b1cb30157d4b1fd80439f93153a906ba189d1611"
+    },
+    {
+      "path": "lessons/Eo6rq9c4HDAtZRR6TAjp",
+      "sha256": "09b6babdfe07ddbc5009e30a8b23d1c45653adb64470018e34f4ef4335a27917"
+    },
+    {
+      "path": "lessons/2iT6j1pA0vvq62oX7jO7/blocks/orcamento_01_objetivo",
+      "sha256": "02716ecc6a9d1613b242b319a290a042b1b0e629b69a6e8b60096a84b445c769"
+    },
+    {
+      "path": "lessons/2iT6j1pA0vvq62oX7jO7/blocks/orcamento_02_plano",
+      "sha256": "ec10bc39c388c59d5a7f531aa1bd8f14aff8eb1fcda13f9d9050fde36a8113a3"
+    },
+    {
+      "path": "lessons/2iT6j1pA0vvq62oX7jO7/blocks/orcamento_03_saldo",
+      "sha256": "296e51625008ef29f05615678d30b64e6c56fec319cc7f19b7fde1276ac1f775"
+    },
+    {
+      "path": "lessons/2iT6j1pA0vvq62oX7jO7/blocks/orcamento_04_atividade_saldo",
+      "sha256": "09d86f35a4255540b5260c44c2d90bce296b6f570100a429cded860482d0adb1"
+    },
+    {
+      "path": "lessons/2iT6j1pA0vvq62oX7jO7/blocks/orcamento_05_categorias",
+      "sha256": "fb595363df5688a17b83eb515ba7774eb272bc2bdde0cb9c7ad30edec764d3cd"
+    },
+    {
+      "path": "lessons/2iT6j1pA0vvq62oX7jO7/blocks/orcamento_06_atividade_categoria",
+      "sha256": "6576c9b878669e238b94244ff34e48dec4165b31752ce00162331c5f718fa4be"
+    },
+    {
+      "path": "lessons/2iT6j1pA0vvq62oX7jO7/blocks/orcamento_07_regra",
+      "sha256": "f584ecd996d0b95619ebfce8520d0dcebda4e01863a293e80c7a095615f6ee37"
+    },
+    {
+      "path": "lessons/2iT6j1pA0vvq62oX7jO7/blocks/orcamento_08_exemplo_regra",
+      "sha256": "81d50d8122323da7b209eb99e754bad6dd9d1f0448e2cf4104d55c309886d789"
+    },
+    {
+      "path": "lessons/2iT6j1pA0vvq62oX7jO7/blocks/orcamento_09_atividade_regra",
+      "sha256": "4d752783cf5292dd789caa61a3323708ecedcdc80c2300a9d817e3f57396f868"
+    },
+    {
+      "path": "lessons/2iT6j1pA0vvq62oX7jO7/blocks/orcamento_10_ajuste",
+      "sha256": "e25c6c9b9ea5719ceb45881670e61f44a6c54641a715c17ac8467a066d084bad"
+    },
+    {
+      "path": "lessons/2iT6j1pA0vvq62oX7jO7/blocks/orcamento_11_resumo",
+      "sha256": "d3d0dd8650f51001413916a6864e82d394e113d3f5f88b7e43c9731bcdb298c2"
+    },
+    {
+      "path": "lessons/gMmIv1XNtMhIrhBzDFKc/blocks/reserva_01_ponte",
+      "sha256": "3f01d797934e2d3a4afc1ee3dfe9914710f22174aa365c8373aba6e12e79b29e"
+    },
+    {
+      "path": "lessons/gMmIv1XNtMhIrhBzDFKc/blocks/reserva_02_finalidade",
+      "sha256": "dfef8009dd826d69dd09c1141af123316287bdca13e40c86de88e4d2cc008a6a"
+    },
+    {
+      "path": "lessons/gMmIv1XNtMhIrhBzDFKc/blocks/reserva_03_previsto_imprevisto",
+      "sha256": "86e48bb5ff8f67dc7a00d75d86d8a140c5d25ad1645f2d580e659e2e34b7a3dd"
+    },
+    {
+      "path": "lessons/gMmIv1XNtMhIrhBzDFKc/blocks/reserva_04_atividade_uso",
+      "sha256": "64d6cb1b2b849bd302b3b9d8c97429f6494a22145e29e5bb862af64185ebd1c3"
+    },
+    {
+      "path": "lessons/gMmIv1XNtMhIrhBzDFKc/blocks/reserva_05_referencia",
+      "sha256": "de0d5e62eefe28527c3facc49a118b46e2dc1b0370a10721d61d42f309cd43b5"
+    },
+    {
+      "path": "lessons/gMmIv1XNtMhIrhBzDFKc/blocks/reserva_06_exemplo_meta",
+      "sha256": "ed189222fbaab76127da31feaf8f50f68c310f898d709ecd0caacaf471b68506"
+    },
+    {
+      "path": "lessons/gMmIv1XNtMhIrhBzDFKc/blocks/reserva_07_atividade_meta",
+      "sha256": "8a4d9353bd6d2ed84c97f4a96916e2f76d62c6488dc29327cd04fd8c0b3295ab"
+    },
+    {
+      "path": "lessons/gMmIv1XNtMhIrhBzDFKc/blocks/reserva_08_construcao",
+      "sha256": "1e4be49baff84bccf3c1bd4cf2835a7eb9d4f1dbbb222865cd50a7412969f505"
+    },
+    {
+      "path": "lessons/gMmIv1XNtMhIrhBzDFKc/blocks/reserva_09_acesso",
+      "sha256": "b1d8ba5c7158a7f862de2b088b0a5ba265a4e3c63d7315ccfb16f0a33a84aeca"
+    },
+    {
+      "path": "lessons/gMmIv1XNtMhIrhBzDFKc/blocks/reserva_10_atividade_acesso",
+      "sha256": "0c492750dd4c7a5572247321b831a9a0e7d4957a458a20b146a91b75d1b49200"
+    },
+    {
+      "path": "lessons/gMmIv1XNtMhIrhBzDFKc/blocks/reserva_11_recomposicao",
+      "sha256": "e02fe09a3098b221f684274dd0de4e01a3b6c8d1f773742a680c1b48d1dbde8e"
+    },
+    {
+      "path": "lessons/gMmIv1XNtMhIrhBzDFKc/blocks/reserva_12_resumo",
+      "sha256": "83c32b987b44bad35defbab3217c738fc855ee40f77f527acecd132c219b844b"
+    },
+    {
+      "path": "lessons/Eo6rq9c4HDAtZRR6TAjp/blocks/investimentos_01_ponte",
+      "sha256": "049dd2c52c5898e8fefab98456e8bb1c92472eb0600a845f8d8ee4484ae342be"
+    },
+    {
+      "path": "lessons/Eo6rq9c4HDAtZRR6TAjp/blocks/investimentos_02_poupar_investir",
+      "sha256": "31615e95536570fa784c2d45ac19ec4f04b449370d710df97a520d5613cca4ca"
+    },
+    {
+      "path": "lessons/Eo6rq9c4HDAtZRR6TAjp/blocks/investimentos_03_objetivo_prazo",
+      "sha256": "2d10ffc17603c9a94c67ac3b8997de03c94e2fa21b08b01e91156696cc247cb1"
+    },
+    {
+      "path": "lessons/Eo6rq9c4HDAtZRR6TAjp/blocks/investimentos_04_atividade_objetivo",
+      "sha256": "734ae005e919e90902f101bf6191ddf59a780f253d6997af753564871348828d"
+    },
+    {
+      "path": "lessons/Eo6rq9c4HDAtZRR6TAjp/blocks/investimentos_05_risco_retorno_liquidez",
+      "sha256": "6d4aa942e0d0d37307c9889bf45b85b11bf2dc7baac4de15f4dc5d89c6225b75"
+    },
+    {
+      "path": "lessons/Eo6rq9c4HDAtZRR6TAjp/blocks/investimentos_06_exemplo_custos",
+      "sha256": "4537ea6915718bfdb42d04c17e795c49beca6af95f0d269967c41c360144067c"
+    },
+    {
+      "path": "lessons/Eo6rq9c4HDAtZRR6TAjp/blocks/investimentos_07_atividade_custos",
+      "sha256": "f4f44351b040b92d0baf24fa1a04714ba666f53f0822f61bcb6600d0a3d599a5"
+    },
+    {
+      "path": "lessons/Eo6rq9c4HDAtZRR6TAjp/blocks/investimentos_08_fixa_variavel",
+      "sha256": "95c62d5a9de8fbc58aad0f817706520274045226c740abbc84ab74b04e0d3784"
+    },
+    {
+      "path": "lessons/Eo6rq9c4HDAtZRR6TAjp/blocks/investimentos_09_atividade_classes",
+      "sha256": "e2c6d26f616c17dadb3ced7f4eef026ec3c1fbd4a43518d11a00dd4d48d12092"
+    },
+    {
+      "path": "lessons/Eo6rq9c4HDAtZRR6TAjp/blocks/investimentos_10_checklist",
+      "sha256": "d7b3a6247557ac7f236cb5b95ff0ea5a16389963befcb5e56e16ad84533d1f46"
+    },
+    {
+      "path": "lessons/Eo6rq9c4HDAtZRR6TAjp/blocks/investimentos_11_resumo",
+      "sha256": "3fc520ec4cfd06f3ee60f3094cdd28309befcd9ce3ae1c966560858652159874"
+    }
+  ],
+  "daily": [
+    {
+      "path": "dailyMissions/dm_orcamento_01",
+      "sha256": "8f03f44377cb4a843d567db26ca38f6259782b7b6d6f2677ddd8b5918aa90a3e"
+    },
+    {
+      "path": "dailyMissions/dm_prioridades_02",
+      "sha256": "64380bbe30b2243b035865655ceaafd2a20ee0b240a52931fed2bfffd6802bea"
+    },
+    {
+      "path": "dailyMissions/dm_reserva_03",
+      "sha256": "fc8fb40e082e4e73c34e19611a0b6a7addd716c3126c3560489f4d38df90060b"
+    },
+    {
+      "path": "dailyMissions/dm_meta_04",
+      "sha256": "f6f61a9a144e606f2f3a5ade48f4c52b17466b56f2008833534083e29fab091c"
+    },
+    {
+      "path": "dailyMissions/dm_comparacao_05",
+      "sha256": "8f738aec1a971304bee1b953c2716eca912d5be6e06c9d3ddd613c9cb9b7f51b"
+    },
+    {
+      "path": "dailyMissions/dm_risco_06",
+      "sha256": "23d02006abbd4dbb0029ae6d3cddaeceab11a64b3aeed2926825a2d72dcd6c98"
+    },
+    {
+      "path": "dailyMissions/dm_registro_07",
+      "sha256": "49b6fafd3d12d1b307ef9974334b6c538728b2bb05c68c7b067b2908fecdad1f"
+    }
+  ],
+  "legacySha256": "7531a229d28da8d18217ac021bb50e7a43551730a951c85715e12c9ac8270d08"
+}

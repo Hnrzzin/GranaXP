@@ -6,7 +6,7 @@ service cloud.firestore {
     // Assumptions and supported data models
     // ==============================================================
     // Global catalogs (client writes denied):
-    // - lessons/{lessonId}; nested blocks are backend-only because they contain the answer key
+    // - lessons/{lessonId}; Spark activity answers are public educational content
     // - modules/{moduleId}
     // - achievements/{achievementId}
     // - dailyMissions/{missionId}
@@ -137,7 +137,7 @@ service cloud.firestore {
         ])
         && hasOnly(data, [
           'title', 'targetAmount', 'currentAmount', 'deadline', 'deadlineDate',
-          'completedAt'
+          'completedAt', 'rewardPolicyVersion', 'createdAt'
         ])
         && validString(data, 'title', 200)
         && validMoney(data.targetAmount)
@@ -145,7 +145,40 @@ service cloud.firestore {
         && data.deadline is string
         && data.deadline in ['CURTO', 'MEDIO', 'LONGO']
         && validOptionalTimestamp(data, 'deadlineDate')
-        && validOptionalTimestamp(data, 'completedAt');
+        && validOptionalTimestamp(data, 'completedAt')
+        && validOptionalInt(data, 'rewardPolicyVersion', 1, 1)
+        && validOptionalTimestamp(data, 'createdAt');
+    }
+
+    function isValidSparkProgress(data, lessonId) {
+      return hasRequired(data, ['lessonId', 'isCompleted', 'completedActivityIds'])
+        && hasOnly(data, [
+          'lessonId', 'isCompleted', 'completedActivityIds', 'lastAccessed',
+          'completedAt', 'lastActivityId', 'userId', 'completed',
+          'validatedActivityIds', 'activityValidationProofs',
+          'activityValidationVersion', 'completionValidationVersion'
+        ])
+        && data.lessonId == lessonId
+        && data.isCompleted is bool
+        && data.completedActivityIds is list
+        && data.completedActivityIds.size() <= 9
+        && validOptionalTimestamp(data, 'lastAccessed')
+        && validOptionalTimestamp(data, 'completedAt')
+        && validOptionalString(data, 'lastActivityId', 200);
+    }
+
+    function validSparkProgressAddition(lessonId) {
+      return request.resource.data.isCompleted == false
+        && resource.data.isCompleted == false
+        && request.resource.data.lastActivityId is string
+        && request.resource.data.lastActivityId.size() > 0
+        && request.resource.data.completedActivityIds.size() ==
+          resource.data.completedActivityIds.size() + 1
+        && request.resource.data.completedActivityIds.hasAll(resource.data.completedActivityIds)
+        && request.resource.data.lastActivityId in request.resource.data.completedActivityIds
+        && !(request.resource.data.lastActivityId in resource.data.completedActivityIds)
+        && exists(/databases/$(database)/documents/lessons/$(lessonId)/blocks/$(request.resource.data.lastActivityId))
+        && get(/databases/$(database)/documents/lessons/$(lessonId)/blocks/$(request.resource.data.lastActivityId)).data.type == 'ACTIVITY';
     }
 
     function isValidBudget(data) {
@@ -217,9 +250,8 @@ service cloud.firestore {
       allow write: if false;
 
       match /blocks/{blockId} {
-        // Blocos incluem correctAnswerIds; o cliente recebe apenas a projeção
-        // sem gabarito pela callable openLesson.
-        allow read: if false;
+        // O gabarito é público no Spark. Acerto é gamificação, não prova segura.
+        allow read: if isAuthenticated();
         allow write: if false;
       }
     }
@@ -235,9 +267,8 @@ service cloud.firestore {
     }
 
     match /dailyMissions/{missionId} {
-      // O documento inclui correctAnswerIds e feedback; somente a callable
-      // devolve a projeção pública da missão atual.
-      allow read: if false;
+      // O gabarito é público no Spark e nunca é tratado como segredo.
+      allow read: if isAuthenticated();
       allow write: if false;
     }
 
@@ -271,7 +302,15 @@ service cloud.firestore {
 
       match /goals/{goalId} {
         allow read: if isOwner(uid);
-        allow create, update: if false;
+        allow create: if isOwner(uid)
+          && isValidGoal(request.resource.data)
+          && !request.resource.data.keys().hasAny(['rewardPolicyVersion', 'createdAt']);
+        allow update: if isOwner(uid)
+          && isValidGoal(request.resource.data)
+          && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['rewardPolicyVersion', 'createdAt'])
+          && (resource.data.get('completedAt', null) == null ||
+            request.resource.data.get('completedAt', null) == resource.data.completedAt);
         allow delete: if isOwner(uid);
       }
 
@@ -297,7 +336,37 @@ service cloud.firestore {
 
       match /lessonProgress/{progressId} {
         allow read: if isOwner(uid);
-        allow write: if false;
+        allow create: if isOwner(uid)
+          && progressId == request.resource.data.lessonId
+          && exists(/databases/$(database)/documents/lessons/$(progressId))
+          && isValidSparkProgress(request.resource.data, progressId)
+          && request.resource.data.keys().hasOnly([
+            'lessonId', 'isCompleted', 'completedActivityIds', 'lastAccessed', 'completedAt'
+          ])
+          && request.resource.data.isCompleted == false
+          && request.resource.data.completedActivityIds.size() == 0
+          && request.resource.data.completedAt == null
+          && request.resource.data.lastAccessed == request.time;
+        allow update: if isOwner(uid)
+          && isValidSparkProgress(request.resource.data, progressId)
+          && request.resource.data.lessonId == resource.data.lessonId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'isCompleted', 'completedActivityIds', 'lastAccessed',
+            'completedAt', 'lastActivityId'
+          ])
+          && resource.data.isCompleted == false
+          && (
+            (request.resource.data.isCompleted == false
+              && request.resource.data.completedAt == resource.data.get('completedAt', null)
+              && request.resource.data.lastAccessed == request.time
+              && validSparkProgressAddition(progressId))
+            ||
+            (request.resource.data.isCompleted == true
+              && request.resource.data.completedActivityIds == resource.data.completedActivityIds
+              && request.resource.data.completedActivityIds.size() == 3
+              && request.resource.data.completedAt == request.time)
+          );
+        allow delete: if false;
       }
 
       match /achievementProgress/{achievementId} {
@@ -307,11 +376,19 @@ service cloud.firestore {
         allow write: if false;
       }
 
-      // Missão diária, streak, marcos e XP são concluídos pela callable.
-      // O cliente pode ler somente o próprio estado.
+      // A missão é gamificação autodeclarada. Não concede XP ou conquistas.
       match /dailyMissionProgress/{dateId} {
         allow read: if isOwner(uid);
-        allow write: if false;
+        allow create: if isOwner(uid)
+          && hasRequired(request.resource.data, ['missionId', 'date', 'isCompleted', 'completedAt'])
+          && hasOnly(request.resource.data, ['missionId', 'date', 'isCompleted', 'completedAt'])
+          && request.resource.data.date == dateId
+          && dateId.matches('^20[0-9][0-9]-[0-1][0-9]-[0-3][0-9]$')
+          && request.resource.data.missionId is string
+          && exists(/databases/$(database)/documents/dailyMissions/$(request.resource.data.missionId))
+          && request.resource.data.isCompleted == true
+          && request.resource.data.completedAt == request.time;
+        allow update, delete: if false;
       }
 
       match /learningStats/streak {
@@ -326,18 +403,8 @@ service cloud.firestore {
     match /achievementProgress/{progressId} {
       allow read: if isAuthenticated()
         && resource.data.userId == request.auth.uid;
-      allow create: if isAuthenticated()
-        && request.resource.data.userId == request.auth.uid
-        && isValidLegacyAchievementProgress(request.resource.data)
-        && isLegacyAchievementType(request.resource.data.achievementId);
-      allow update: if isAuthenticated()
-        && resource.data.userId == request.auth.uid
-        && request.resource.data.userId == resource.data.userId
-        && request.resource.data.achievementId == resource.data.achievementId
-        && isValidLegacyAchievementProgress(request.resource.data)
-        && isLegacyAchievementType(resource.data.achievementId);
-      allow delete: if isAuthenticated()
-        && resource.data.userId == request.auth.uid;
+      // Historical records remain readable; only trusted backend writes progress.
+      allow write: if false;
     }
 
     // Explicit default deny for every unlisted collection and nested path.

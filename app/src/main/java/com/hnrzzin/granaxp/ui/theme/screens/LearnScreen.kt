@@ -791,11 +791,14 @@ private fun LessonActivityCard(
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(
-                text = block.activityType?.name
-                    ?.replace('_', ' ')
-                    ?.lowercase()
-                    ?.replaceFirstChar { it.titlecase() }
-                    ?: "Atividade",
+                text = when (block.activityType) {
+                    ActivityType.MULTIPLE_CHOICE -> "Múltipla escolha"
+                    ActivityType.TRUE_FALSE -> "Verdadeiro ou falso"
+                    ActivityType.CLASSIFICATION -> "Classificação"
+                    ActivityType.FINANCIAL_SCENARIO -> "Cenário financeiro"
+                    ActivityType.CHART_ANALYSIS -> "Análise de gráfico"
+                    null -> "Atividade"
+                },
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = GranaXPColors.Info,

@@ -5,8 +5,37 @@ export const mandatoryTests = [
   `${environmentClass}#startupSelectsOneCoherentEnvironmentBeforeRepositoriesRun`,
   'com.hnrzzin.granaxp.LessonCatalogIntegrationTest#realSdkDistinguishesEmptyLoadedAndFailedCatalogsAcrossTheLearningFlow',
 ];
+export const sparkTests = [
+  mandatoryTests[0],
+  mandatoryTests[1],
+  mandatoryTests[2],
+  ...[
+    'opensInNativeDialog',
+    'closeButtonDismissesWithoutChangingUnderlyingState',
+    'backDismissesAndReopeningKeepsSelectedAnswer',
+    'submissionWaitsForConfirmationAndDisablesRepeatedInput',
+    'incorrectFeedbackAllowsAnotherAttempt',
+    'completedMissionShowsStreakAndNoRewardAction',
+    'loadingErrorRetryAndUnavailableRemainInDialog',
+    'longContentScrollsInsideDialogAndCloseRemainsAccessible',
+  ].map(name => `com.hnrzzin.granaxp.DailyMissionModalTest#${name}`),
+  ...[
+    'showsOnlyCurrentBlockAndBackReviewsWithoutCompleting',
+    'incorrectOrUnconfirmedCorrectFeedbackCannotAdvance',
+    'lastActivityDoesNotCompleteOnViewingOrWrongAnswer',
+    'completedLessonAllowsHistoricalReviewWithoutRewardCallback',
+    'reopeningRetainsConfirmedActivitiesAndRestartsPresentation',
+    'revokedConfirmationCannotLeaveCursorBeyondPendingActivity',
+    'longBlockScrollDoesNotRevealNextBlockAndControlsRemainAvailable',
+    'loadingErrorsOrMismatchedLessonNeverExposeCompletion',
+  ].map(name => `com.hnrzzin.granaxp.LessonStepNavigationTest#${name}`),
+  'com.hnrzzin.granaxp.LessonProgressiveIntegrationTest#threeLessonsAdvanceReopenValidateAndRewardOnlyOnCompletion',
+  'com.hnrzzin.granaxp.SparkMissionIntegrationTest#wrongCorrectReopenAndReplayKeepOneCompletionAndZeroXp',
+  'com.hnrzzin.granaxp.SparkGoalIntegrationTest#ownerCanManageGoalWithoutMintingXp',
+];
 export function expectedTests(mode) {
   if (mode === 'local') return [...mandatoryTests];
+  if (mode === 'spark') return [...sparkTests];
   if (mode === 'normal') return [mandatoryTests[0], mandatoryTests[2]];
   throw new Error(`Invalid gate mode: ${mode}`);
 }
@@ -19,6 +48,7 @@ export function currentRunLogcat(logcat, since) {
 export function validateInstrumentation({stdout, stderr = '', exitCode, timedOut = false,
   token, mode, logcat = ''}) {
   const expected = expectedTests(mode);
+  const proofMode = mode === 'spark' ? 'local' : mode;
   const reject = message => { throw new Error(`Instrumentation rejected: ${message}`); };
   if (timedOut || exitCode !== 0) reject('transport failure or timeout');
   if (!token) reject('missing execution token');
@@ -46,7 +76,7 @@ export function validateInstrumentation({stdout, stderr = '', exitCode, timedOut
       if (code === 2) {
         const id = fields.granaxpGateProof;
         if (!started.has(id) || passed.has(id) || witnessed.has(id)
-          || fields.granaxpGateToken !== token || fields.granaxpGateMode !== mode) {
+          || fields.granaxpGateToken !== token || fields.granaxpGateMode !== proofMode) {
           reject('missing, stale, duplicated or misplaced execution proof');
         }
         witnessed.add(id);

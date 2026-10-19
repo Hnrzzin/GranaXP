@@ -15,67 +15,12 @@ import kotlinx.coroutines.runBlocking
 
 class AchievementStateTest {
     @Test
-    fun `checagens V1 preservam tipos e nao leem progresso se catalogo falhar`() = runBlocking {
-        val cases = listOf(
-            RequirementType.LESSON_COUNT to CategoriaConquista.EDUCACAO,
-            RequirementType.GOAL_COUNT to null,
-            RequirementType.TRANSACTION_COUNT to CategoriaConquista.FINANCAS,
-        )
-        val catalog = cases.mapIndexed { index, (type, category) ->
-            AchievementModel(
-                id = "v1-$index", requirementType = type,
-                category = category ?: CategoriaConquista.FINANCAS,
-            )
-        } + AchievementModel(id = "streak", requirementType = RequirementType.STREAK)
-        for ((type, category) in cases) {
-            val (count, selected, progress) = loadLegacyAchievementCheckInputs(
-                loadCount = { 2 }, loadCatalog = { catalog }, loadProgress = { emptyList() },
-                requirementType = type, category = category,
-            )
-            assertEquals(2, count)
-            assertEquals(listOf(type), selected.map { it.requirementType })
-            assertEquals(emptyList<AchievementProgressModel>(), progress)
-
-            var catalogReads = 0
-            try {
-                loadLegacyAchievementCheckInputs(
-                    loadCount = { throw IllegalStateException("Contagem indisponivel") },
-                    loadCatalog = { catalogReads++; catalog },
-                    loadProgress = { emptyList() },
-                    requirementType = type, category = category,
-                )
-                fail("A checagem de $type tratou falha da contagem como zero")
-            } catch (_: IllegalStateException) {
-                assertEquals(0, catalogReads)
-            }
-
-            var progressReads = 0
-            try {
-                loadLegacyAchievementCheckInputs(
-                    loadCount = { 2 },
-                    loadCatalog = { throw IllegalStateException("Firestore indisponivel") },
-                    loadProgress = { progressReads++; emptyList() },
-                    requirementType = type, category = category,
-                )
-                fail("A checagem de $type aceitou falha do catalogo")
-            } catch (_: IllegalStateException) {
-                assertEquals(0, progressReads)
-            }
-
-            try {
-                loadLegacyAchievementCheckInputs(
-                    loadCount = { 2 },
-                    loadCatalog = { catalog },
-                    loadProgress = { throw IllegalStateException("Progresso indisponivel") },
-                    requirementType = type, category = category,
-                )
-                fail("A checagem de $type tratou falha do progresso como lista vazia")
-            } catch (_: IllegalStateException) {
-                // Nenhum resultado é produzido para que a ViewModel tente criar progresso novo.
-            }
-        }
+    fun `historico desbloqueado continua visivel com canonico ainda bloqueado`() {
+        val definition = AchievementModel(id = "badge", requirementType = RequirementType.GOAL_COUNT)
+        val historical = AchievementProgressModel(achievementId = "badge", isUnlocked = true)
+        val pending = AchievementProgressModel(achievementId = "badge", isUnlocked = false)
+        assertSame(historical, combineAchievements(listOf(definition), listOf(pending), listOf(historical)).single().progress)
     }
-
     @Test
     fun `catalogo vazio e sucesso sem cards`() = runBlocking {
         val state = loadAchievementUiState(

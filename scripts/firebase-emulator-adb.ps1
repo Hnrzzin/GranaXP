@@ -20,7 +20,7 @@ if ($Remove) {
     if ($LASTEXITCODE -ne 0) { throw 'Não foi possível verificar os encaminhamentos.' }
 }
 
-foreach ($port in @(9099, 8080, 5001)) {
+foreach ($port in @(9099, 8080)) {
     if ($Remove) {
         # Match the device-side port, regardless of its destination.
         if (($forwards -join "`n") -notmatch "(?m)^\S+\s+tcp:$port\s+") { continue }
@@ -36,7 +36,7 @@ foreach ($port in @(9099, 8080, 5001)) {
 
 $forwards = & $AdbPath -s $Serial reverse --list
 if ($LASTEXITCODE -ne 0) { throw 'Não foi possível verificar os encaminhamentos.' }
-foreach ($port in @(9099, 8080, 5001)) {
+foreach ($port in @(9099, 8080)) {
     if ($Remove) {
         if (($forwards -join "`n") -match "(?m)^\S+\s+tcp:$port\s+") {
             $removalFailures += "Encaminhamento ainda ativo na porta $port."

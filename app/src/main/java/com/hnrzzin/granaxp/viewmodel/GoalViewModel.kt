@@ -5,8 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.Timestamp
 import com.hnrzzin.granaxp.model.GoalDeadline
 import com.hnrzzin.granaxp.model.GoalModel
-import com.hnrzzin.granaxp.model.RequirementType
-import com.hnrzzin.granaxp.repositories.AchievementRepository
 import com.hnrzzin.granaxp.repositories.GoalRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,7 +36,6 @@ sealed class GoalCompletionEvent {
 
 class GoalViewModel(private val userId: String) : ViewModel() {
     private val repository = GoalRepository(userId)
-    private val achievementRepository = AchievementRepository()
 
     private val _uiState = MutableStateFlow<GoalUiState>(GoalUiState.Loading)
     val uiState: StateFlow<GoalUiState> = _uiState.asStateFlow()
@@ -114,11 +111,6 @@ class GoalViewModel(private val userId: String) : ViewModel() {
                 fetchGoals()
                 _actionState.value = GoalActionState.Success
 
-                try {
-                    checkGoalAchievements()
-                } catch (e: Exception) {
-                    println("Falha ao checar conquistas de meta: $e")
-                }
 
                 if (result.xpEarned > 0) {
                     _completionEvent.value = GoalCompletionEvent.GoalCompleted(
@@ -131,30 +123,7 @@ class GoalViewModel(private val userId: String) : ViewModel() {
             }
         }
     }
-    private suspend fun checkGoalAchievements() {
-        val (goalCount, achievements, progressList) = loadLegacyAchievementCheckInputs(
-            loadCount = { repository.getGoals().size },
-            loadCatalog = { achievementRepository.getAchievements() },
-            loadProgress = { achievementRepository.getAchievementProgress(userId) },
-            requirementType = RequirementType.GOAL_COUNT,
-        )
-
-        achievements.forEach { achievement ->
-            val progress = progressList.find { it.achievementId == achievement.id }
-            if (progress?.isUnlocked == true) return@forEach
-            val shouldUnlock = goalCount >= achievement.requirementValue
-            if (progress != null) {
-                achievementRepository.updateAchievementProgress(progress.id, goalCount, shouldUnlock)
-            } else {
-                achievementRepository.createAchievementProgress(userId, achievement.id, goalCount, shouldUnlock)
-            }
-        }
-    }
-
-    /**
-     * O backend soma o progresso e concede o bônus uma única vez, usando
-     * completedAt como marcador persistente e operação transacional.
-     */
+    /** Meta é gerenciada pelo próprio usuário; não há recompensa de XP no Spark. */
     fun updateGoalProgress(goal: GoalModel, amountToAdd: Double, alreadyDeclared: Boolean) {
         viewModelScope.launch {
             _actionState.value = GoalActionState.Loading

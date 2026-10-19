@@ -18,6 +18,7 @@ import {
   getDocs,
   query,
   setDoc,
+  serverTimestamp,
   updateDoc,
   where,
 } from "firebase/firestore";
@@ -49,6 +50,23 @@ const seed = async (path, data) => {
 };
 
 describe("autoridade v3", () => {
+  test("autorizações e recibos de200XP são privados inclusive para o dono", async () => {
+    for (const collectionId of ["goalRewardAuthorizations", "goalRewardClaims"]) {
+      const path = `users/${USER_A}/${collectionId}/condition-1`;
+      await seed(path, {version: 1, uid: USER_A, verifiedAmount: 100});
+      for (const db of [userDb(USER_A), userDb(USER_B), testEnv.unauthenticatedContext().firestore()]) {
+        await assertFails(getDoc(doc(db, path)));
+        await assertFails(setDoc(doc(db, path), {version: 1, verifiedAmount: 100000}));
+        await assertFails(updateDoc(doc(db, path), {verifiedAmount: 100000}));
+        await assertFails(deleteDoc(doc(db, path)));
+        await assertFails(setDoc(doc(db, `users/${USER_A}/${collectionId}/new`), {uid: USER_A}));
+      }
+    }
+    await seed(`users/${USER_A}/goals/goal-1`, {title: "Meta", targetAmount: 100, currentAmount: 0, deadline: "CURTO"});
+    await assertFails(updateDoc(doc(userDb(USER_A), `users/${USER_A}/goals/goal-1`), {
+      rewardPolicyVersion: 1, createdAt: Timestamp.now(), completedAt: null,
+    }));
+  });
   test("controle global do catálogo não é legível ou gravável pelo cliente", async () => {
     await seed("learningCatalogControl/current", {protocolVersion: 1, generation: 1});
     const db = userDb(USER_A);
@@ -202,7 +220,7 @@ describe("dados privados da V1", () => {
     });
   }
 
-  test("metas são legíveis e removíveis pelo dono, mas mutações passam pelo backend", async () => {
+  test("metas são gerenciadas pelo dono sem recompensa de XP", async () => {
     await seed(`users/${USER_A}/goals/goal-1`, {
       title: "Reserva",
       targetAmount: 5000,
@@ -215,10 +233,10 @@ describe("dados privados da V1", () => {
     const ref = doc(dbA, `users/${USER_A}/goals/goal-1`);
 
     await assertSucceeds(getDoc(ref));
-    await assertFails(setDoc(doc(dbA, `users/${USER_A}/goals/new-goal`), {
+    await assertSucceeds(setDoc(doc(dbA, `users/${USER_A}/goals/new-goal`), {
       title: "Nova", targetAmount: 100, currentAmount: 0, deadline: "CURTO",
     }));
-    await assertFails(updateDoc(ref, { currentAmount: 5000 }));
+    await assertSucceeds(updateDoc(ref, { currentAmount: 5000 }));
     await seed(`users/${USER_B}/goals/goal-b`, {
       title: "Outra", targetAmount: 100, currentAmount: 0, deadline: "CURTO",
     });
@@ -319,7 +337,7 @@ describe("dados privados da V1", () => {
 });
 
 describe("catálogos globais", () => {
-  test("usuário autenticado lê catálogos públicos, mas não blocos nem gabarito diário", async () => {
+  test("usuário autenticado lê catálogo e gabaritos públicos sem poder alterá-los", async () => {
     await seed("lessons/lesson-1", {
       title: "Aula",
       description: "Resumo",
@@ -371,10 +389,10 @@ describe("catálogos globais", () => {
       await assertSucceeds(getDoc(doc(db, path)));
       await assertFails(setDoc(doc(db, path), { ataque: true }));
     }
-    await assertFails(getDoc(doc(db, "lessons/lesson-1/blocks/block-1")));
-    await assertFails(getDocs(collection(db, "lessons/lesson-1/blocks")));
-    await assertFails(getDoc(doc(db, "dailyMissions/mission-1")));
-    await assertFails(getDocs(collection(db, "dailyMissions")));
+    await assertSucceeds(getDoc(doc(db, "lessons/lesson-1/blocks/block-1")));
+    await assertSucceeds(getDocs(collection(db, "lessons/lesson-1/blocks")));
+    await assertSucceeds(getDoc(doc(db, "dailyMissions/mission-1")));
+    await assertSucceeds(getDocs(collection(db, "dailyMissions")));
     await assertFails(setDoc(doc(db, "dailyMissions/mission-1"), {ataque: true}));
     await assertSucceeds(getDocs(query(collection(db, "lessons"))));
   });
@@ -389,7 +407,7 @@ describe("catálogos globais", () => {
 });
 
 describe("achievementProgress legado", () => {
-  test("preserva a consulta V1 filtrada por userId e as escritas do dono", async () => {
+  test("preserva leitura V1, mas recusa concessão e progresso legado pelo dono", async () => {
     await seed("achievements/achievement-1", {requirementType: "TRANSACTION_COUNT"});
     await seed("achievements/achievement-2", {requirementType: "GOAL_COUNT"});
     await seed("achievementProgress/progress-a", {
@@ -415,18 +433,18 @@ describe("achievementProgress legado", () => {
 
     await assertSucceeds(getDocs(ownQuery));
     await assertFails(getDocs(collection(dbA, "achievementProgress")));
-    await assertSucceeds(updateDoc(
+    await assertFails(updateDoc(
       doc(dbA, "achievementProgress/progress-a"),
       { currentProgress: 2, isUnlocked: true },
     ));
-    await assertSucceeds(setDoc(doc(dbA, "achievementProgress/progress-new"), {
+    await assertFails(setDoc(doc(dbA, "achievementProgress/progress-new"), {
       userId: USER_A,
       achievementId: "achievement-2",
       currentProgress: 0,
       isUnlocked: false,
       lastUpdated: Timestamp.now(),
     }));
-    await assertSucceeds(deleteDoc(
+    await assertFails(deleteDoc(
       doc(dbA, "achievementProgress/progress-new"),
     ));
   });
@@ -684,5 +702,93 @@ describe("validação e negação por padrão", () => {
       level: 999,
       nextLevelXp: 999999,
     }));
+  });
+});
+
+describe("V1 Spark sem Functions", () => {
+  test("bloqueia catálogo, concessão direta e campos extras em progresso", async () => {
+    const db = userDb(USER_A);
+    await seed("modules/modulo-1", {title: "Módulo", order: 0});
+    await seed("lessons/licao-1", {title: "Lição", moduleId: "modulo-1", order: 0});
+    await seed("lessons/licao-1/blocks/atividade-1", {type: "ACTIVITY"});
+    await seed("dailyMissions/missao-1", {id: "missao-1", order: 0});
+    for (const path of ["modules/modulo-1", "lessons/licao-1",
+      "lessons/licao-1/blocks/atividade-1", "dailyMissions/missao-1"]) {
+      await assertFails(updateDoc(doc(db, path), {reward: 200}));
+      await assertFails(deleteDoc(doc(db, path)));
+    }
+    await assertFails(setDoc(doc(db, `users/${USER_A}/lessonProgress/licao-1`), {
+      lessonId: "licao-1", isCompleted: true,
+      completedActivityIds: ["atividade-1"], completedAt: serverTimestamp(),
+    }));
+    await assertFails(setDoc(doc(db, `users/${USER_A}/dailyMissionProgress/2026-10-15`), {
+      missionId: "missao-1", date: "2026-10-15", isCompleted: true,
+      completedAt: serverTimestamp(), xpEarned: 200,
+    }));
+    await assertFails(setDoc(doc(db, `users/${USER_A}/achievementProgress/falso`), {
+      isUnlocked: true,
+    }));
+  });
+
+  test("catálogo de atividades e missões é legível, mas imutável para clientes", async () => {
+    await seed("lessons/lesson-1/blocks/activity-1", {
+      type: "ACTIVITY", alternatives: {a: "A", b: "B"}, correctAnswerIds: ["a"],
+    });
+    await seed("dailyMissions/mission-1", {
+      id: "mission-1", order: 0, correctAnswerIds: ["a"],
+    });
+    const db = userDb(USER_A);
+    await assertSucceeds(getDoc(doc(db, "lessons/lesson-1/blocks/activity-1")));
+    await assertSucceeds(getDoc(doc(db, "dailyMissions/mission-1")));
+    await assertFails(updateDoc(doc(db, "lessons/lesson-1/blocks/activity-1"), {correctAnswerIds: ["b"]}));
+    await assertFails(updateDoc(doc(db, "dailyMissions/mission-1"), {correctAnswerIds: ["b"]}));
+  });
+
+  test("metas do dono funcionam com XP zero e metadados de recompensa protegidos", async () => {
+    const db = userDb(USER_A);
+    const ref = doc(db, `users/${USER_A}/goals/spark-goal`);
+    const goal = {title: "Reserva", targetAmount: 100, currentAmount: 0,
+      deadline: "CURTO", deadlineDate: null, completedAt: null};
+    await assertSucceeds(setDoc(ref, goal));
+    await assertSucceeds(updateDoc(ref, {currentAmount: 100, completedAt: Timestamp.now()}));
+    await assertFails(updateDoc(ref, {rewardPolicyVersion: 1}));
+    await assertFails(setDoc(doc(userDb(USER_B), `users/${USER_A}/goals/foreign`), goal));
+    await assertFails(updateDoc(doc(db, `users/${USER_A}`), {xp: 200}));
+  });
+
+  test("progresso educacional é do dono, aditivo e não concede XP gravável", async () => {
+    await seed("lessons/lesson-1", {title: "Lição", order: 0});
+    await seed("lessons/lesson-1/blocks/activity-1", {type: "ACTIVITY"});
+    const ref = doc(userDb(USER_A), `users/${USER_A}/lessonProgress/lesson-1`);
+    await assertSucceeds(setDoc(ref, {lessonId: "lesson-1", isCompleted: false,
+      completedActivityIds: [], lastAccessed: serverTimestamp(), completedAt: null}));
+    await assertSucceeds(updateDoc(ref, {completedActivityIds: ["activity-1"],
+      lastActivityId: "activity-1", lastAccessed: serverTimestamp()}));
+    await seed("lessons/lesson-1/blocks/activity-2", {type: "ACTIVITY"});
+    await seed("lessons/lesson-1/blocks/activity-3", {type: "ACTIVITY"});
+    await assertSucceeds(updateDoc(ref, {completedActivityIds: ["activity-1", "activity-2"],
+      lastActivityId: "activity-2", lastAccessed: serverTimestamp()}));
+    await assertSucceeds(updateDoc(ref, {completedActivityIds: ["activity-1", "activity-2", "activity-3"],
+      lastActivityId: "activity-3", lastAccessed: serverTimestamp()}));
+    await assertSucceeds(updateDoc(ref, {isCompleted: true, completedAt: serverTimestamp()}));
+    await assertFails(updateDoc(ref, {xp: 999999}));
+    await assertFails(updateDoc(ref, {isCompleted: false}));
+    await assertFails(setDoc(doc(userDb(USER_B), `users/${USER_A}/lessonProgress/foreign`),
+      {lessonId: "lesson-1", isCompleted: true, completedActivityIds: []}));
+  });
+
+  test("missão pode ser concluída uma vez pelo dono, sem escrita de streak ou conquista", async () => {
+    await seed("dailyMissions/mission-1", {id: "mission-1", order: 0});
+    const path = `users/${USER_A}/dailyMissionProgress/2026-10-15`;
+    const ref = doc(userDb(USER_A), path);
+    await assertSucceeds(setDoc(ref, {missionId: "mission-1", date: "2026-10-15",
+      isCompleted: true, completedAt: serverTimestamp()}));
+    await assertFails(updateDoc(ref, {missionId: "mission-1"}));
+    await assertFails(deleteDoc(ref));
+    await assertFails(setDoc(doc(userDb(USER_B), path), {missionId: "mission-1"}));
+    await assertFails(setDoc(doc(userDb(USER_A), `users/${USER_A}/learningStats/streak`),
+      {currentStreak: 30}));
+    await assertFails(setDoc(doc(userDb(USER_A), `users/${USER_A}/achievementProgress/arbitrary`),
+      {isUnlocked: true}));
   });
 });

@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "source": {
+    "stage": "E6.9H",
+    "reference": "E6.9C achievements-demo.json; E6.9G/114.4",
+    "referenceContentSha256": "dd1a430e0f96c606b22d08a585b5c64e0a5c4ae4879f2c515106843695492dac",
+    "purpose": "Editorial candidate transcribed for local review; not production approval"
+  },
+  "editorialApproval": {
+    "status": "PENDING_OWNER_REVIEW",
+    "productionApproved": false
+  },
+  "compatibility": {
+    "preserveHistoricalIds": [
+      "Yf1Gf6ez5AkPUUECOePP",
+      "aKJgBEffC6cTvrCaXjBY",
+      "iQo20q4jxFnAtkJBn8F4"
+    ],
+    "expectedCards": 8,
+    "newProgressWrites": false,
+    "criteriaAuthority": "educational_display_only"
+  },
+  "definitions": [
+    {
+      "id": "conquista_investimentos",
+      "fields": {
+        "title": "Primeiros passos",
+        "description": "Conclua Introdução a Investimentos.",
+        "icon": "EmojiEvents",
+        "requirementType": "MODULE_COMPLETION",
+        "requirementValue": 1,
+        "referenceId": "investimentos",
+        "category": "EDUCACAO"
+      }
+    },
+    {
+      "id": "conquista_organizacao_financeira",
+      "fields": {
+        "title": "Base organizada",
+        "description": "Conclua Orçamento Pessoal e Reserva de Emergência.",
+        "icon": "EmojiEvents",
+        "requirementType": "MODULE_COMPLETION",
+        "requirementValue": 1,
+        "referenceId": "organizacao_financeira",
+        "category": "EDUCACAO"
+      }
+    },
+    {
+      "id": "streak_15",
+      "fields": {
+        "title": "Consistência",
+        "description": "Alcance uma sequência de 15 missões diárias concluídas.",
+        "icon": "EmojiEvents",
+        "requirementType": "STREAK",
+        "requirementValue": 15,
+        "referenceId": null,
+        "category": "EDUCACAO"
+      }
+    },
+    {
+      "id": "streak_30",
+      "fields": {
+        "title": "Hábito construído",
+        "description": "Alcance uma sequência de 30 missões diárias concluídas.",
+        "icon": "EmojiEvents",
+        "requirementType": "STREAK",
+        "requirementValue": 30,
+        "referenceId": null,
+        "category": "EDUCACAO"
+      }
+    },
+    {
+      "id": "streak_7",
+      "fields": {
+        "title": "Ritmo de aprendizado",
+        "description": "Alcance uma sequência de 7 missões diárias concluídas.",
+        "icon": "EmojiEvents",
+        "requirementType": "STREAK",
+        "requirementValue": 7,
+        "referenceId": null,
+        "category": "EDUCACAO"
+      }
+    }
+  ],
+  "digest": "8bb55c5ebc0824729096a6dea059d81b0235bd51746670adff3ecbe716efaca8"
+}

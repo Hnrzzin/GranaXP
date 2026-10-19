@@ -3,8 +3,6 @@ package com.hnrzzin.granaxp.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.hnrzzin.granaxp.model.RequirementType
-import com.hnrzzin.granaxp.repositories.AchievementRepository
 import com.hnrzzin.granaxp.repositories.LessonRepository
 import com.hnrzzin.granaxp.repositories.ModuleRepository
 import kotlinx.coroutines.CancellationException
@@ -18,7 +16,6 @@ class LessonViewModel(private val userId: String) : ViewModel() {
 
     private val repository = LessonRepository(userId)
     private val moduleRepository = ModuleRepository()
-    private val achievementRepository = AchievementRepository()
 
     private val _uiState = MutableStateFlow<LessonUiState>(LessonUiState.Loading)
     val uiState: StateFlow<LessonUiState> = _uiState.asStateFlow()
@@ -188,16 +185,7 @@ class LessonViewModel(private val userId: String) : ViewModel() {
         )
     }
 
-    /**
-     * Solicita ao backend a conclusão e a concessão atômica de XP, depois
-     * verifica o desbloqueio das conquistas de educação.
-     *
-     * A checagem de conquistas é isolada em seu próprio try/catch: nesse ponto
-     * a conclusão e o XP já foram persistidos, então uma falha
-     * ao checar conquistas (ex: instabilidade de rede) não deve fazer o
-     * usuário achar que a conclusão inteira falhou — o que antes causava
-     * risco de XP duplicado numa nova tentativa.
-     */
+    /** Conclusão educacional Spark; o XP exibido não é autoridade financeira. */
     fun completeLesson(lessonWithProgress: LessonWithProgress) {
         val content = _contentUiState.value as? LessonContentUiState.Success
         if (content?.lessonId != lessonWithProgress.lesson.id || !content.canComplete) {
@@ -211,12 +199,6 @@ class LessonViewModel(private val userId: String) : ViewModel() {
             try {
                 val result = repository.completeLesson(lessonWithProgress.lesson.id)
 
-                // Isolado de propósito — ver doc acima.
-                try {
-                    checkEducationAchievements()
-                } catch (e: Exception) {
-                    println("Falha ao checar conquistas de educação: $e")
-                }
 
                 fetchLessons()
 
@@ -226,30 +208,6 @@ class LessonViewModel(private val userId: String) : ViewModel() {
                 )
             } catch (e: Exception) {
                 _completionEvent.value = LessonCompletionEvent.Error("Falha ao completar lição: ${e.message}")
-            }
-        }
-    }
-
-    // Regra #4: conquistas de categoria EDUCACAO baseadas em completedLessonsCount.
-    private suspend fun checkEducationAchievements() {
-        val (completedCount, achievements, progressList) = loadLegacyAchievementCheckInputs(
-            loadCount = { repository.getLessonProgress().count { it.isCompleted } },
-            loadCatalog = { achievementRepository.getAchievements() },
-            loadProgress = { achievementRepository.getAchievementProgress(userId) },
-            requirementType = RequirementType.LESSON_COUNT,
-            category = com.hnrzzin.granaxp.model.CategoriaConquista.EDUCACAO,
-        )
-
-        achievements.forEach { achievement ->
-            val progress = progressList.find { it.achievementId == achievement.id }
-            if (progress?.isUnlocked == true) return@forEach
-
-            val shouldUnlock = completedCount >= achievement.requirementValue
-
-            if (progress != null) {
-                achievementRepository.updateAchievementProgress(progress.id, completedCount, shouldUnlock)
-            } else {
-                achievementRepository.createAchievementProgress(userId, achievement.id, completedCount, shouldUnlock)
             }
         }
     }

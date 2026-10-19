@@ -35,7 +35,7 @@ function Invoke-TestAdb {
 }
 
 function Assert-Cleaned {
-    foreach ($port in @(9099, 8080, 5001)) {
+    foreach ($port in @(9099, 8080)) {
         if ($testState.Forwards.ContainsKey("tcp:$port")) { throw "Forward $port was left active." }
     }
     if ($testState.Forwards['tcp:6000'] -ne 'tcp:7000') { throw 'An unrelated forward was changed.' }
@@ -43,10 +43,10 @@ function Assert-Cleaned {
 
 try {
     foreach ($case in @(
-        @{ Name = 'three present'; Ports = @(9099, 8080, 5001); Runs = 1 },
-        @{ Name = 'partial'; Ports = @(8080, 5001); Runs = 1 },
+        @{ Name = 'two present'; Ports = @(9099, 8080); Runs = 1 },
+        @{ Name = 'partial'; Ports = @(8080); Runs = 1 },
         @{ Name = 'none'; Ports = @(); Runs = 1 },
-        @{ Name = 'cleanup twice'; Ports = @(9099, 8080, 5001); Runs = 2 }
+        @{ Name = 'cleanup twice'; Ports = @(9099, 8080); Runs = 2 }
     )) {
         $testState.Forwards.Clear()
         $testState.Forwards['tcp:6000'] = 'tcp:7000'
@@ -61,13 +61,13 @@ try {
     # A real removal error must be reported after trying the other ports.
     $testState.Forwards.Clear()
     $testState.Removed.Clear()
-    foreach ($port in @(9099, 8080, 5001)) { $testState.Forwards["tcp:$port"] = "tcp:$port" }
+    foreach ($port in @(9099, 8080)) { $testState.Forwards["tcp:$port"] = "tcp:$port" }
     $testState.FailPort = 'tcp:9099'
     $failure = $null
     try { $null = & $cleanupScript -Serial test-device -AdbPath Invoke-TestAdb -Remove }
     catch { $failure = $_ }
     if (-not $failure -or $failure.Exception.Message -notmatch '9099') { throw 'ADB failure was hidden.' }
-    if ($testState.Removed.Count -ne 3 -or $testState.Forwards.Count -ne 1) {
+    if ($testState.Removed.Count -ne 2 -or $testState.Forwards.Count -ne 1) {
         throw 'Cleanup stopped before trying the other ports.'
     }
     Write-Output 'PASS: removal error propagates after other ports are processed'

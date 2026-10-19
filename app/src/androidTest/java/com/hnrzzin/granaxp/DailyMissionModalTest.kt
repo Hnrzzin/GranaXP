@@ -134,6 +134,18 @@ class DailyMissionModalTest {
         compose.runOnIdle { assertEquals(0, submissions) }
     }
 
+    @Test fun streakUsesSingularOnlyForOneDay() {
+        val state = mutableStateOf(DailyMissionUiState.Completed(active.date, mission, StreakModel(1, 1)))
+        compose.setContent {
+            MaterialTheme { DailyMissionDialog(state.value, {}, {}, {}, {}) }
+        }
+        compose.onNodeWithText("🔥 Sequência: 1 dia · Recorde: 1 dia").assertIsDisplayed()
+        compose.runOnIdle { state.value = state.value.copy(streak = StreakModel(0, 2)) }
+        compose.onNodeWithText("🔥 Sequência: 0 dias · Recorde: 2 dias").assertIsDisplayed()
+        compose.runOnIdle { state.value = state.value.copy(streak = StreakModel(2, 1)) }
+        compose.onNodeWithText("🔥 Sequência: 2 dias · Recorde: 1 dia").assertIsDisplayed()
+    }
+
     @Test fun loadingErrorRetryAndUnavailableRemainInDialog() {
         val state = mutableStateOf<DailyMissionUiState>(DailyMissionUiState.Loading)
         var retries = 0

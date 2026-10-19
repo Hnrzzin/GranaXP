@@ -48,7 +48,7 @@ class HomeViewModel(private val userId: String) : ViewModel() {
         viewModelScope.launch {
             _uiState.value = HomeUiState.Loading
             try {
-                val user = userRepository.getUser() ?: throw Exception("Usuário não encontrado.")
+                val user = userRepository.getDisplayUser() ?: throw Exception("Usuário não encontrado.")
 
                 val transactions = transactionRepository.getTransactions()
                 val totalIncome = transactions.filter { it.type == TransactionType.RECEITA }.sumOf { it.amount }
@@ -86,7 +86,5 @@ class HomeViewModel(private val userId: String) : ViewModel() {
         }
     }
 
-    // earnXp() foi removido — era código órfão (nunca chamado por nenhuma tela).
-    // A concessão de XP agora vive só onde a regra de negócio realmente acontece:
-    // XP é concedido exclusivamente pelas Cloud Functions autenticadas.
+    // XP persistido no perfil é histórico; a V1 Spark usa progresso educacional apenas para exibição.
 }

@@ -5,7 +5,9 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModelStore
 import com.google.firebase.FirebaseApp
@@ -206,9 +208,13 @@ class LessonCatalogIntegrationTest {
                     assertFalse(assembled.modules[0].isLessonUnlocked(1))
                     assertTrue(assembled.modules[1].isLessonUnlocked(0))
                     compose.onNodeWithText("Organização Financeira").assertIsDisplayed()
+                    compose.onNodeWithContentDescription("Abrir módulo: Organização Financeira").performClick()
                     compose.onNodeWithText("Primeira").assertIsDisplayed()
+                    compose.onNodeWithText("Voltar aos módulos").performClick()
+                    compose.onNodeWithContentDescription("Abrir módulo: Investimentos").performClick()
                     compose.onNodeWithText("Terceira").assertIsDisplayed()
                     compose.onNodeWithText("Nenhuma lição disponível neste módulo.").assertDoesNotExist()
+                    compose.onNodeWithText("Voltar aos módulos").performClick()
                 } finally {
                     InstrumentationRegistry.getInstrumentation().runOnMainSync {
                         repositoryField.set(trail, originalRepository)
@@ -249,8 +255,11 @@ class LessonCatalogIntegrationTest {
                 assertEquals(2, afterRemoval.lessons.size)
                 assertTrue(afterRemoval.modules[1].lessons.isEmpty())
                 compose.onNodeWithText("Terceira").assertDoesNotExist()
+                compose.onNodeWithContentDescription("Abrir módulo: Investimentos").performClick()
+                compose.onNodeWithText("Nenhuma lição disponível neste módulo.").assertIsDisplayed()
+                compose.onNodeWithText("Voltar aos módulos").performClick()
 
-                // A real authenticated callable proves Auth + Functions share the demo project.
+                // A direct Firestore mission read also stays inside the demo project.
                 assertFalse(DailyMissionRepository().openDailyMission(1_791_115_200_000).available)
 
                 // Keep Auth, modules and progress readable; fail specifically inside getLessons.
@@ -264,6 +273,7 @@ class LessonCatalogIntegrationTest {
                 adminDocument("lessons/block10-2-invalid", "DELETE")
                 refreshTrail(trail)
                 assertTrue(awaitTrail(trail) is LessonUiState.Success)
+                compose.onNodeWithContentDescription("Abrir módulo: Organização Financeira").performClick()
                 compose.onNodeWithText("Primeira").assertIsDisplayed()
 
                 auth.signOut()

@@ -67,7 +67,6 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.database)
-    implementation(libs.firebase.functions)
 
     // Imagens dos blocos CHART_ANALYSIS
     implementation(libs.coil.compose)

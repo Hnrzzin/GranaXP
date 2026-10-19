@@ -13,4 +13,6 @@ data class LessonBlock(
     var selectionMode: LessonSelectionMode? = null,
     var feedback: String = "",
     var chartImageUrl: String? = null,
+    // Public Firestore answer key in the Spark edition; never an authority token.
+    var correctAnswerIds: List<String> = emptyList(),
 )

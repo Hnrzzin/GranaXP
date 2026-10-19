@@ -1,9 +1,13 @@
 package com.hnrzzin.granaxp.repositories
 
-import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.AchievementModel
 import com.hnrzzin.granaxp.model.AchievementProgressModel
+import com.hnrzzin.granaxp.model.TransactionType
+import com.hnrzzin.granaxp.model.LessonModel
+import com.hnrzzin.granaxp.model.LessonProgressModel
+import java.util.Calendar
+import java.util.TimeZone
 import kotlinx.coroutines.tasks.await
 
 private fun validStreakDefinition(data: Map<String, Any?>): Boolean {
@@ -34,20 +38,6 @@ internal suspend fun <T> readAchievementCatalog(
     fields: (T) -> Map<String, Any?>,
     decode: (T) -> AchievementModel?,
 ): List<AchievementModel> = mapAchievementDocuments(fetch(), fields, decode)
-
-internal fun legacyAchievementProgressData(
-    userId: String,
-    achievementId: String,
-    currentProgress: Int,
-    isUnlocked: Boolean,
-    lastUpdated: Timestamp,
-): Map<String, Any> = mapOf(
-    "userId" to userId,
-    "achievementId" to achievementId,
-    "currentProgress" to currentProgress,
-    "isUnlocked" to isUnlocked,
-    "lastUpdated" to lastUpdated,
-)
 
 class AchievementRepository {
     private val db = FirebaseFirestore.getInstance()
@@ -80,58 +70,41 @@ class AchievementRepository {
             }
     }
 
-    suspend fun createAchievementProgress(
+    suspend fun getLocalAchievementProgress(
         userId: String,
-        achievementId: String,
-        currentProgress: Int,
-        isUnlocked: Boolean
-    ): Boolean {
-        return try {
-            val progress = legacyAchievementProgressData(
-                userId, achievementId, currentProgress, isUnlocked, Timestamp.now(),
-            )
-            db.collection("achievementProgress").add(progress).await()
-            true
-        } catch (e: Exception) {
-            println("Error creating achievement progress: ${e.message}")
-            false
-        }
+        catalog: List<AchievementModel>,
+    ): List<AchievementProgressModel> {
+        val transactions = TransactionRepository(userId).getTransactions()
+        val goals = GoalRepository(userId).getGoals()
+        val learning = LessonRepository(userId)
+        val lessons = learning.getLessons()
+        val progress = learning.getLessonProgress()
+        val completed = progress.filter { it.isCompleted }.map { it.lessonId }.toSet()
+        val modules = ModuleRepository().getModules()
+        val completedModules = modules.map { it.idModule }.filter { moduleId ->
+            val moduleLessons = lessons.filter { it.moduleId == moduleId }
+            moduleLessons.isNotEmpty() && moduleLessons.all { it.id in completed }
+        }.toSet()
+        val currentMonth = Calendar.getInstance(TimeZone.getTimeZone("America/Sao_Paulo"))
+        val savings = transactions.filter { item ->
+            val itemDate = Calendar.getInstance(TimeZone.getTimeZone("America/Sao_Paulo"))
+            itemDate.time = item.date.toDate()
+            itemDate.get(Calendar.YEAR) == currentMonth.get(Calendar.YEAR) &&
+                itemDate.get(Calendar.MONTH) == currentMonth.get(Calendar.MONTH)
+        }.sumOf { if (it.type == TransactionType.RECEITA) it.amount else -it.amount }
+        val dates = db.collection("users").document(userId).collection("dailyMissionProgress")
+            .get().await().documents.filter { it.getBoolean("isCompleted") == true }.map { it.id }
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("America/Sao_Paulo")
+        }.format(java.util.Date())
+        return deriveSparkAchievements(catalog, SparkAchievementFacts(
+            transactionCount = transactions.size,
+            goalCount = goals.size,
+            lessonCount = completed.size,
+            monthlySavings = savings.coerceIn(0.0, Int.MAX_VALUE.toDouble()).toInt(),
+            completedModules = completedModules,
+            highestStreak = educationalStreak(dates, today).highestStreak,
+        ))
     }
 
-    suspend fun updateAchievementProgress(
-        progressId: String,
-        currentProgress: Int,
-        isUnlocked: Boolean
-    ): Boolean {
-        return try {
-            db.collection("achievementProgress").document(progressId)
-                .update("currentProgress", currentProgress, "isUnlocked", isUnlocked)
-                .await()
-            true
-        } catch (e: Exception) {
-            println("Error updating achievement progress: ${e.message}")
-            false
-        }
-    }
-
-    suspend fun unlockAchievement(progressId: String): Boolean {
-        return try {
-            db.collection("achievementProgress").document(progressId)
-                .update("isUnlocked", true)
-                .await()
-            true
-        } catch (e: Exception) {
-            println("Error unlocking achievement: ${e.message}")
-            false
-        }
-    }
-    suspend fun deleteAchievementProgress(progressId: String): Boolean {
-        return try {
-            db.collection("achievementProgress").document(progressId).delete().await()
-            true
-        } catch (e: Exception) {
-            println("Error deleting achievement progress: ${e.message}")
-            false
-        }
-    }
 }

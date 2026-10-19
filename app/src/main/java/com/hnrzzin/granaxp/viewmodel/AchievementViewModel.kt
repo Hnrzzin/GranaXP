@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.hnrzzin.granaxp.model.AchievementModel
 import com.hnrzzin.granaxp.model.AchievementProgressModel
-import com.hnrzzin.granaxp.model.CategoriaConquista
 import com.hnrzzin.granaxp.model.RequirementType
 import com.hnrzzin.granaxp.repositories.AchievementRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +21,7 @@ internal fun combineAchievements(
     achievements: List<AchievementModel>,
     canonicalProgress: List<AchievementProgressModel>,
     legacyProgress: List<AchievementProgressModel>,
+    localProgress: List<AchievementProgressModel> = emptyList(),
 ): List<AchievementWithProgress> {
     val canonicalById = canonicalProgress.associateBy { it.achievementId }
     val legacyById = legacyProgress.groupBy { it.achievementId }.mapValues { (_, records) ->
@@ -33,26 +33,19 @@ internal fun combineAchievements(
         RequirementType.TRANSACTION_COUNT, RequirementType.LESSON_COUNT,
         RequirementType.GOAL_COUNT, RequirementType.MONTHLY_SAVINGS,
     )
+    val localById = localProgress.associateBy { it.achievementId }
     return achievements.map { achievement ->
-        val progress = canonicalById[achievement.id]
-            ?: legacyById[achievement.id].takeIf { achievement.requirementType in legacyTypes }
+        val historical = legacyById[achievement.id].takeIf { achievement.requirementType in legacyTypes }
+        val canonical = canonicalById[achievement.id]
+        val preserved = if (historical?.isUnlocked == true && canonical?.isUnlocked != true) historical
+            else canonical ?: historical
+        val local = localById[achievement.id]
+        val progress = if (preserved?.isUnlocked == true) preserved
+            else if (local?.isUnlocked == true || (local != null &&
+                    local.currentProgress > (preserved?.currentProgress ?: -1))) local
+            else preserved ?: local
         AchievementWithProgress(achievement, progress)
     }
-}
-
-internal suspend fun loadLegacyAchievementCheckInputs(
-    loadCount: suspend () -> Int,
-    loadCatalog: suspend () -> List<AchievementModel>,
-    loadProgress: suspend () -> List<AchievementProgressModel>,
-    requirementType: RequirementType,
-    category: CategoriaConquista? = null,
-): Triple<Int, List<AchievementModel>, List<AchievementProgressModel>> {
-    val count = loadCount()
-    val achievements = loadCatalog().filter { achievement ->
-        achievement.requirementType == requirementType &&
-            (category == null || achievement.category == category)
-    }
-    return Triple(count, achievements, loadProgress())
 }
 
 sealed class AchievementUiState {
@@ -65,24 +58,18 @@ internal suspend fun loadAchievementUiState(
     loadCatalog: suspend () -> List<AchievementModel>,
     loadCanonicalProgress: suspend () -> List<AchievementProgressModel>,
     loadLegacyProgress: suspend () -> List<AchievementProgressModel>,
+    loadLocalProgress: suspend (List<AchievementModel>) -> List<AchievementProgressModel> = { emptyList() },
 ): AchievementUiState = try {
+    val catalog = loadCatalog()
     AchievementUiState.Success(
-        combineAchievements(loadCatalog(), loadCanonicalProgress(), loadLegacyProgress()),
+        combineAchievements(catalog, loadCanonicalProgress(), loadLegacyProgress(),
+            loadLocalProgress(catalog)),
     )
 } catch (e: Exception) {
     AchievementUiState.Error("Falha ao buscar conquistas: ${e.message}")
 }
 
-/**
- * Responsável apenas por buscar e exibir conquistas + progresso (usado no ProfileScreen).
- *
- * Os gatilhos legados continuam nos ViewModels da V1:
- * - TransactionViewModel.checkFinancialAchievements() (categoria FINANCAS)
- * - LessonViewModel.checkEducationAchievements() (categoria EDUCACAO)
- *
- * MODULE_COMPLETION e STREAK são concedidas pelo backend em completeLesson
- * e submitDailyMissionAnswer, respectivamente.
- */
+/** Histórico canônico mais indicadores locais derivados, sem escrita de conquistas. */
 class AchievementViewModel(private val userId: String) : ViewModel() {
 
     private val repository = AchievementRepository()
@@ -101,6 +88,7 @@ class AchievementViewModel(private val userId: String) : ViewModel() {
                 loadCatalog = { repository.getAchievements() },
                 loadCanonicalProgress = { repository.getUserAchievementProgress(userId) },
                 loadLegacyProgress = { repository.getAchievementProgress(userId) },
+                loadLocalProgress = { catalog -> repository.getLocalAchievementProgress(userId, catalog) },
             )
         }
     }

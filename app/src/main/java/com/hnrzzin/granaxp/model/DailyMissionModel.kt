@@ -1,6 +1,6 @@
 package com.hnrzzin.granaxp.model
 
-/** Projeção pública da missão; o gabarito existe somente no catálogo do backend. */
+/** Missão educacional Spark. O gabarito é público no Firestore e não é segredo. */
 data class DailyMissionModel(
     val id: String,
     val title: String,
@@ -9,4 +9,6 @@ data class DailyMissionModel(
     val alternatives: Map<String, String>,
     val selectionMode: LessonSelectionMode,
     val chartImageUrl: String? = null,
+    val correctAnswerIds: Set<String> = emptySet(),
+    val feedback: String = "",
 )

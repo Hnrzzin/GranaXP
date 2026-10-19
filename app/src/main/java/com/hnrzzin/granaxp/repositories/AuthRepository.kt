@@ -3,7 +3,6 @@ package com.hnrzzin.granaxp.repositories
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.functions.FirebaseFunctions
 import com.hnrzzin.granaxp.model.UserModel
 import kotlinx.coroutines.tasks.await
 
@@ -12,7 +11,6 @@ class AuthRepository {
     private val auth = FirebaseAuth.getInstance()
     private val firestore = FirebaseFirestore.getInstance()
     private val usersCollection = firestore.collection("users")
-    private val functions: FirebaseFunctions = FirebaseFunctionsProvider.instance
 
     suspend fun getCurrentUserId(): String? {
         return auth.currentUser?.uid
@@ -64,9 +62,6 @@ class AuthRepository {
     }
 
     suspend fun deleteAccount() {
-        checkNotNull(auth.currentUser) { "Nenhum usuário autenticado." }
-        val result = functions.getHttpsCallable("deleteAccount").call().await().data as? Map<*, *>
-        check(result?.get("deleted") == true) { "A exclusão não foi confirmada pelo servidor." }
-        auth.signOut()
+        error("Exclusão completa da conta indisponível nesta versão Spark.")
     }
 }

@@ -183,7 +183,9 @@ fun DailyMissionDialog(
 
 @Composable
 private fun MissionStreak(streak: StreakModel) {
-    Text("🔥 Sequência: ${streak.currentStreak} dias · Recorde: ${streak.highestStreak} dias",
+    val currentUnit = if (streak.currentStreak == 1) "dia" else "dias"
+    val highestUnit = if (streak.highestStreak == 1) "dia" else "dias"
+    Text("🔥 Sequência: ${streak.currentStreak} $currentUnit · Recorde: ${streak.highestStreak} $highestUnit",
         style = MaterialTheme.typography.bodySmall, color = GranaXPColors.Gray700)
 }
 

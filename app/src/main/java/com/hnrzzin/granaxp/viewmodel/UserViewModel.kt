@@ -46,7 +46,7 @@ class UserViewModel(private val userId: String) : ViewModel() {
         viewModelScope.launch {
             _uiState.value = UserUiState.Loading
             try {
-                val user = userRepository.getUser()
+                val user = userRepository.getDisplayUser()
                 if (user != null) {
                     _uiState.value = UserUiState.Success(user)
                 } else {
@@ -81,7 +81,7 @@ class UserViewModel(private val userId: String) : ViewModel() {
         authRepository.logout()
     }
 
-    /** Exclusão autoritativa: o backend remove os dados privados antes do Auth. */
+    /** A edição Spark não promete exclusão parcial de Auth sem limpar dados aninhados. */
     fun deleteAccount() {
         viewModelScope.launch {
             _actionState.value = UserActionState.Loading

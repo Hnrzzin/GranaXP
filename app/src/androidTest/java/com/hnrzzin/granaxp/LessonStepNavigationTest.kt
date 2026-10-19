@@ -41,6 +41,26 @@ class LessonStepNavigationTest {
         activityType = ActivityType.MULTIPLE_CHOICE, selectionMode = LessonSelectionMode.SINGLE,
         alternatives = mapOf("a" to "Alternativa A", "b" to "Alternativa B"))
 
+    @Test fun activityTypeHeadingsArePortugueseWithoutChangingCatalogContent() {
+        val state = mutableStateOf(LessonContentUiState.Success("fixture", listOf(activity)))
+        compose.setContent {
+            MaterialTheme { LessonContentPage(lesson, 1, state.value, {}, {}, { _, _ -> }, {}) }
+        }
+        val headings = mapOf(
+            ActivityType.MULTIPLE_CHOICE to "Múltipla escolha",
+            ActivityType.TRUE_FALSE to "Verdadeiro ou falso",
+            ActivityType.CLASSIFICATION to "Classificação",
+            ActivityType.FINANCIAL_SCENARIO to "Cenário financeiro",
+            ActivityType.CHART_ANALYSIS to "Análise de gráfico",
+        )
+        for ((type, heading) in headings) {
+            compose.runOnIdle { state.value = state.value.copy(blocks = listOf(activity.copy(activityType = type))) }
+            compose.onNodeWithText(heading).assertIsDisplayed()
+            compose.onNodeWithText("Atividade obrigatória").assertIsDisplayed()
+            compose.onNodeWithText("Alternativa A").assertIsDisplayed()
+        }
+    }
+
     @Test fun showsOnlyCurrentBlockAndBackReviewsWithoutCompleting() {
         var completions = 0
         var exits = 0

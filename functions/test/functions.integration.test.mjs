@@ -8,6 +8,7 @@ import {
   connectAuthEmulator,
   createUserWithEmailAndPassword,
   getAuth,
+  signInWithEmailAndPassword,
   signOut,
 } from "firebase/auth";
 import {connectFunctionsEmulator, getFunctions, httpsCallable} from "firebase/functions";
@@ -18,6 +19,9 @@ const REGION = "southamerica-east1";
 const FIRESTORE_HOST = process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8080";
 const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099";
 const FUNCTIONS_PORT = Number(process.env.FUNCTIONS_EMULATOR_PORT ?? 5001);
+assert.ok(["127.0.0.1:8080", "127.0.0.1:18080"].includes(FIRESTORE_HOST));
+assert.ok(["127.0.0.1:9099", "127.0.0.1:19099"].includes(AUTH_HOST));
+assert.ok([5001, 15001].includes(FUNCTIONS_PORT));
 
 process.env.GCLOUD_PROJECT = PROJECT_ID;
 const adminApp = initializeAdminApp();
@@ -265,7 +269,7 @@ describe("quinta auditoria: ordenamentos determinísticos do catálogo", () => {
         const generation = (await adminDb.doc(controlPath).get()).data().generation;
         const oldSecret = process.env.LESSON_ACTIVITY_PROOF_KEYRING;
         assert.equal(process.env.GCLOUD_PROJECT, "demo-granaxp");
-        assert.equal(process.env.FIRESTORE_EMULATOR_HOST, "127.0.0.1:8080");
+        assert.equal(process.env.FIRESTORE_EMULATOR_HOST, FIRESTORE_HOST);
         assert.ok(process.env.GRANAXP_TEST_KEYRING);
         process.env.LESSON_ACTIVITY_PROOF_KEYRING = process.env.GRANAXP_TEST_KEYRING;
         const backend = await import("../lib/index.js");
@@ -1697,14 +1701,14 @@ describe("metas autoritativas", () => {
       currentAmount: 100, deadline: "CURTO"};
     const [first, second] = await Promise.all([call(request), call(request)]);
     assert.equal(first.data.goalId, second.data.goalId);
-    assert.deepEqual([first.data.xpEarned, second.data.xpEarned].sort((a, b) => a - b), [0, 200]);
+    assert.deepEqual([first.data.xpEarned, second.data.xpEarned].sort((a, b) => a - b), [0, 0]);
     assert.equal((await adminDb.collection(`users/${uid}/goals`).get()).size, 1);
     const third = await call(request);
     assert.equal(third.data.xpEarned, 0);
     await adminDb.doc(`users/${uid}/goals/${first.data.goalId}`).delete();
     assert.equal((await call(request)).data.xpEarned, 0);
     assert.equal((await adminDb.collection(`users/${uid}/goals`).get()).size, 0);
-    assert.equal((await adminDb.doc(`users/${uid}`).get()).data().xp, 100);
+    assert.equal((await adminDb.doc(`users/${uid}`).get()).data().xp, 0);
   });
 
   test("reutilizar requestId com conteúdo diferente falha sem criar meta", async () => {
@@ -1718,7 +1722,7 @@ describe("metas autoritativas", () => {
     assert.equal((await adminDb.doc(`users/${uid}`).get()).data().xp, 0);
   });
 
-  test("criação concluída concede exatamente 200 XP e registra completedAt", async () => {
+  test("criação concluída autodeclarada registra conclusão sem conceder XP", async () => {
     const {uid, email, functions} = await authenticatedClient();
     await seedUser(uid, email);
     const deadlineDate = ClientTimestamp.fromMillis(Date.now() + 86_400_000);
@@ -1727,17 +1731,17 @@ describe("metas autoritativas", () => {
       title: "Reserva", targetAmount: 100, currentAmount: 100, deadline: "CURTO",
       deadlineDate, xpReward: 999999,
     });
-    assert.equal(result.data.xpEarned, 200);
-    assert.equal(result.data.leveledUp, true);
+    assert.equal(result.data.xpEarned, 0);
+    assert.equal(result.data.leveledUp, false);
     const goal = (await adminDb.doc(`users/${uid}/goals/${result.data.goalId}`).get()).data();
     assert.ok(goal.completedAt instanceof Timestamp);
     assert.equal(goal.deadlineDate.toMillis(), deadlineDate.toMillis());
     assert.deepEqual((await adminDb.doc(`users/${uid}`).get()).data(), {
-      name: "Usuário", email, level: 2, xp: 100, nextLevelXp: 120,
+      name: "Usuário", email, level: 1, xp: 0, nextLevelXp: 100,
     });
   });
 
-  test("cruzamento de progresso recompensa uma vez", async () => {
+  test("cruzamento legado sem autorização mantém progresso sem recompensa retroativa", async () => {
     const {uid, email, functions} = await authenticatedClient();
     await seedUser(uid, email);
     await adminDb.doc(`users/${uid}/goals/goal-1`).set({
@@ -1748,8 +1752,8 @@ describe("metas autoritativas", () => {
       call({goalId: "goal-1", amountToAdd: 10}),
       call({goalId: "goal-1", amountToAdd: 10}),
     ]);
-    assert.deepEqual([first.data.xpEarned, second.data.xpEarned].sort((a, b) => a - b), [0, 200]);
-    assert.equal((await adminDb.doc(`users/${uid}`).get()).data().xp, 100);
+    assert.deepEqual([first.data.xpEarned, second.data.xpEarned].sort((a, b) => a - b), [0, 0]);
+    assert.equal((await adminDb.doc(`users/${uid}`).get()).data().xp, 0);
   });
 
   test("meta legada já concluída é marcada como histórica sem novo XP", async () => {
@@ -1826,5 +1830,210 @@ describe("deleteAccount", () => {
       (error) => error.code === "auth/user-not-found",
     );
     assert.equal((await adminAuth.getUser(other.uid)).uid, other.uid);
+  });
+});
+
+describe("guard de piloto do backend", () => {
+  const at = Date.parse("2026-10-03T03:00:00.000Z");
+  const goalData = {requestId: "pilot-request-1", title: "Reserva", targetAmount: 100,
+    currentAmount: 90, deadline: "CURTO", deadlineDate: null};
+  const calls = {
+    openLesson: {lessonId: "pilot-lesson"},
+    submitLessonActivity: {lessonId: "pilot-lesson", blockId: "activity-1", selectedAnswerIds: ["a"]},
+    completeLesson: {lessonId: "pilot-lesson"},
+    createGoal: goalData,
+    updateGoalProgress: {goalId: "pilot-goal", amountToAdd: 10},
+    updateGoalDetails: {goalId: "pilot-goal", title: "Editada", targetAmount: 50, deadline: "CURTO"},
+    deleteAccount: {},
+    openDailyMission: {deviceTimeMillis: at},
+    submitDailyMissionAnswer: {deviceTimeMillis: at, expectedDate: "2026-10-03",
+      expectedMissionId: "pilot-mission", selectedAnswerIds: ["a"]},
+  };
+
+  function configure(t, mode, pilotUid) {
+    const names = ["BACKEND_CALLABLE_MODES", "BACKEND_PILOT_UID", "LESSON_ACTIVITY_PROOF_KEYRING"];
+    const previous = names.map((name) => process.env[name]);
+    t.after(() => names.forEach((name, i) => {
+      if (previous[i] === undefined) delete process.env[name];
+      else process.env[name] = previous[i];
+    }));
+    for (const [name, value] of [[names[0], mode === undefined ? undefined : JSON.stringify(Object.fromEntries(Object.keys(calls).map(name => [name, mode])))], [names[1], pilotUid]]) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    process.env.LESSON_ACTIVITY_PROOF_KEYRING = process.env.GRANAXP_TEST_KEYRING;
+  }
+
+  async function state() {
+    const documents = [];
+    async function collect(parent) {
+      for (const collection of await parent.listCollections()) {
+        for (const document of (await collection.get()).docs) {
+          documents.push([document.ref.path, document.data(), document.updateTime]);
+          await collect(document.ref);
+        }
+      }
+    }
+    await collect(adminDb);
+    const users = (await adminAuth.listUsers()).users.map((user) => user.toJSON());
+    return {documents: documents.sort(([a], [b]) => a.localeCompare(b)),
+      users: users.sort((a, b) => a.uid.localeCompare(b.uid))};
+  }
+
+  async function fixtures() {
+    const owner = await authenticatedClient();
+    const other = await authenticatedClient();
+    await seedUser(owner.uid, owner.email);
+    await seedUser(other.uid, other.email);
+    await seedLesson("pilot-lesson", {activityIds: ["activity-1"]});
+    await seedDailyMission("pilot-mission", 0);
+    await adminDb.doc(`users/${owner.uid}/goals/pilot-goal`).set(goalData);
+    await adminDb.doc(`users/${owner.uid}/lessonProgress/pilot-lesson`).set({
+      lessonId: "pilot-lesson", isCompleted: true, completedActivityIds: ["activity-1"],
+    });
+    await adminDb.doc(`users/${owner.uid}/learningStats/streak`).set({
+      currentStreak: 2, highestStreak: 2, lastMissionCompletedDate: "2026-10-02", claimedMilestones: [],
+    });
+    await adminDb.doc(`users/${owner.uid}/dailyMissionProgress/2026-10-03`).set({
+      missionId: "pilot-mission", date: "2026-10-03", isCompleted: true,
+    });
+    await adminDb.doc(`users/${owner.uid}/goalCreationRequests/${goalData.requestId}`).set({
+      goalId: "pilot-goal", fingerprint: JSON.stringify({...goalData, requestId: undefined}),
+    });
+    return {owner, other};
+  }
+
+  // These tests fail if any callable bypasses authorization, even on a historical/replay path.
+  for (const [label, mode, pilot, code] of [
+    ["disabled", "disabled", "owner", "failed-precondition"],
+    ["modo ausente", undefined, "owner", "failed-precondition"],
+    ["modo vazio", "", "owner", "failed-precondition"],
+    ["modo inválido", "OPEN", "owner", "failed-precondition"],
+    ["modo com espaços", " open ", "owner", "failed-precondition"],
+    ["pilot sem UID", "pilot", undefined, "failed-precondition"],
+    ["pilot UID vazio", "pilot", "", "failed-precondition"],
+    ["pilot UID em branco", "pilot", "   ", "failed-precondition"],
+    ["pilot UID com espaços externos", "pilot", " padded ", "failed-precondition"],
+    ["pilot UID longo", "pilot", "x".repeat(129), "failed-precondition"],
+    ["pilot UID incorreto", "pilot", "other", "permission-denied"],
+  ]) {
+    test(`pilot_guard ${label}: nove callables negadas antes de dados, sem efeitos`, async (t) => {
+      const {owner, other} = await fixtures();
+      const pilotUid = pilot === "owner" ? owner.uid : pilot === "other" ? other.uid : pilot;
+      configure(t, mode, pilotUid);
+      const backend = await import("../lib/index.js");
+      const beforeState = await state();
+      // Tripwires at the actual Admin boundary catch reads as well as writes/deletion.
+      const touched = () => assert.fail("Callable negada alcançou o Admin SDK.");
+      for (const method of ["doc", "collection", "runTransaction", "recursiveDelete", "bulkWriter"]) {
+        t.mock.method(adminDb, method, touched);
+      }
+      t.mock.method(adminAuth, "deleteUser", touched);
+      try {
+        for (const [name, data] of Object.entries(calls)) {
+          await assert.rejects(backend[name].run({auth: {uid: owner.uid}, data: {...data,
+            userId: pilotUid, uid: pilotUid, mode: "open", BACKEND_ACCESS_MODE: "open",
+            BACKEND_PILOT_UID: owner.uid}}), (error) => {
+            assert.equal(error.code, code, name);
+            assert.equal(error.details, undefined);
+            assert.ok(!error.message.includes(owner.uid) && !error.message.includes(other.uid));
+            return true;
+          });
+        }
+        await assert.rejects(backend.openDailyMission.run({auth: {uid: owner.uid},
+          data: {deviceTimeMillis: 0}}), (error) => error.code === code);
+        await assert.rejects(backend.createGoal.run({auth: {uid: owner.uid}, data: null}),
+          (error) => error.code === code);
+      } finally { t.mock.restoreAll(); }
+      assert.deepEqual(await state(), beforeState);
+    });
+  }
+
+  for (const mode of [undefined, "disabled", "pilot", "open"]) {
+    test(`pilot_guard sem autenticação em ${mode ?? "ausente"}: payload não concede identidade`, async (t) => {
+      configure(t, mode, "fixture-pilot-uid");
+      const backend = await import("../lib/index.js");
+      for (const [name, data] of Object.entries(calls)) {
+        await assert.rejects(backend[name].run({data: {...data, uid: "fixture-pilot-uid",
+          userId: "fixture-pilot-uid", BACKEND_ACCESS_MODE: "open"}}),
+        (error) => error.code === "unauthenticated");
+      }
+    });
+  }
+
+  for (const mode of ["pilot", "open"]) {
+    test(`pilot_guard ${mode}: identidade admitida percorre as nove, XP e exclusão preservados`, async (t) => {
+      const {owner, other} = await fixtures();
+      configure(t, mode, mode === "pilot" ? owner.uid : undefined);
+      const backend = await import("../lib/index.js");
+      const call = (name, data = calls[name]) => backend[name].run({auth: {uid: owner.uid},
+        data: {...data, userId: other.uid, uid: other.uid, BACKEND_ACCESS_MODE: "disabled",
+          BACKEND_PILOT_UID: other.uid}});
+      const otherBefore = (await adminDb.doc(`users/${other.uid}`).get()).data();
+      await adminDb.doc(`users/${owner.uid}/lessonProgress/pilot-lesson`).delete();
+      await adminDb.doc(`users/${owner.uid}/dailyMissionProgress/2026-10-03`).delete();
+      await adminDb.doc(`users/${owner.uid}/goalCreationRequests/${goalData.requestId}`).delete();
+      assert.equal((await call("openLesson")).blocks.length, 1);
+      assert.equal((await call("submitLessonActivity")).correct, true);
+      assert.equal((await call("completeLesson")).xpEarned, 50);
+      assert.equal((await call("completeLesson")).xpEarned, 0);
+      const created = await call("createGoal", {...goalData, currentAmount: 100});
+      assert.equal(created.xpEarned, 0);
+      assert.equal((await call("createGoal", {...goalData, currentAmount: 100})).xpEarned, 0);
+      assert.equal((await call("updateGoalProgress")).xpEarned, 0);
+      assert.equal((await call("updateGoalDetails")).xpEarned, 0);
+      assert.equal((await adminDb.doc(`users/${owner.uid}/goals/pilot-goal`).get()).data().title, "Editada");
+      assert.equal((await call("openDailyMission")).available, true);
+      const mission = await call("submitDailyMissionAnswer");
+      assert.equal(mission.xpEarned, 100);
+      assert.equal(mission.streak.currentStreak, 3);
+      assert.deepEqual(mission.streak.claimedMilestones, [3]);
+      assert.equal((await call("submitDailyMissionAnswer")).xpEarned, 0);
+      assert.equal((await adminDb.doc(`users/${owner.uid}/lessonProgress/pilot-lesson`).get()).get("completionValidationVersion"), 3);
+      assert.equal((await adminDb.doc(`users/${owner.uid}/dailyMissionProgress/2026-10-03`).get()).get("isCompleted"), true);
+      assert.deepEqual(await call("deleteAccount"), {deleted: true});
+      assert.equal((await adminDb.doc(`users/${owner.uid}`).get()).exists, false);
+      for (const path of ["goals", "lessonProgress", "goalCreationRequests", "dailyMissionProgress", "learningStats"]) {
+        assert.equal((await adminDb.collection(`users/${owner.uid}/${path}`).get()).empty, true);
+      }
+      await assert.rejects(adminAuth.getUser(owner.uid), (error) => error.code === "auth/user-not-found");
+      assert.deepEqual((await adminDb.doc(`users/${other.uid}`).get()).data(), otherBefore);
+      assert.equal((await adminAuth.getUser(other.uid)).uid, other.uid);
+    });
+  }
+
+  test("pilot_transport parâmetros reais do emulador admitem ou negam sem override cliente", async () => {
+    const mode = process.env.GRANAXP_TEST_ACCESS_MODE ?? "open";
+    assert.ok(["disabled", "pilot", "open"].includes(mode));
+    await adminAuth.createUser({uid: "fixture-pilot-transport", email: "pilot@example.com", password: "password123"});
+    const app = initializeApp({apiKey: "demo-key", projectId: PROJECT_ID}, `pilot-transport-${++sequence}`);
+    const auth = getAuth(app);
+    connectAuthEmulator(auth, `http://${AUTH_HOST}`, {disableWarnings: true});
+    await signInWithEmailAndPassword(auth, "pilot@example.com", "password123");
+    const functions = getFunctions(app, REGION);
+    connectFunctionsEmulator(functions, "127.0.0.1", FUNCTIONS_PORT);
+    clients.push({app, auth});
+    const other = await authenticatedClient();
+    await seedUser("fixture-pilot-transport", "pilot@example.com");
+    await seedUser(other.uid, other.email);
+    const beforeState = await state();
+    for (const [client, isPilot] of [[functions, true], [other.functions, false]]) {
+      const denied = mode === "disabled" || (mode === "pilot" && !isPilot);
+      const data = {deviceTimeMillis: 0, uid: "fixture-pilot-transport", userId: "fixture-pilot-transport",
+        BACKEND_ACCESS_MODE: "open", BACKEND_PILOT_UID: other.uid};
+      if (denied) {
+        for (const name of Object.keys(calls)) {
+          await assert.rejects(httpsCallable(client, name)(data), (error) => {
+            assert.equal(error.code, mode === "disabled" ? "functions/failed-precondition" : "functions/permission-denied", name);
+            assert.equal(error.details, undefined);
+            assert.ok(!error.message.includes("fixture-pilot-transport") && !error.message.includes(other.uid));
+            return true;
+          });
+        }
+      } else {
+        assert.deepEqual((await httpsCallable(client, "openDailyMission")(data)).data, {available: false});
+      }
+    }
+    assert.deepEqual(await state(), beforeState);
   });
 });

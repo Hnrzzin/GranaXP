@@ -3,6 +3,7 @@ package com.hnrzzin.granaxp.repositories
 import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hnrzzin.granaxp.model.UserModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 
 class UserRepository(private val userId: String) {
@@ -36,6 +37,21 @@ class UserRepository(private val userId: String) {
             Log.e("TraceHome", "UserRepository: Erro durante a leitura no caminho ${docRef.path}", e)
             throw e
         }
+    }
+
+    suspend fun getDisplayUser(): UserModel? {
+        val stored = getUser() ?: return null
+        // A falha de catálogo não bloqueia painel financeiro nem edição do perfil.
+        val total = try {
+            val learning = LessonRepository(userId)
+            educationalXpTotal(learning.getLessons(), learning.getLessonProgress())
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w("TraceHome", "Catálogo indisponível para XP educacional.", error)
+            0
+        }
+        return educationalDisplayUser(stored, total)
     }
 
     suspend fun updateName(newName: String) {
