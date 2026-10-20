@@ -12,8 +12,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CancellationException
 
 class AchievementStateTest {
+    @Test fun cancelledAchievementRefreshDoesNotBecomeAnErrorState() = runBlocking {
+        try {
+            loadAchievementUiState(
+                loadCatalog = { throw CancellationException("superseded refresh") },
+                loadCanonicalProgress = { emptyList() },
+                loadLegacyProgress = { emptyList() },
+            )
+            fail("Cancellation must propagate so a stale refresh cannot replace newer results")
+        } catch (_: CancellationException) {
+            // A superseded refresh must not publish an error in the current request.
+        }
+    }
+
     @Test
     fun `historico desbloqueado continua visivel com canonico ainda bloqueado`() {
         val definition = AchievementModel(id = "badge", requirementType = RequirementType.GOAL_COUNT)

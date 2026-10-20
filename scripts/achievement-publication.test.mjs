@@ -42,6 +42,17 @@ test('five create-only definitions preserve three historical records and become 
   assert.equal(m.createAchievementPlan(m.validateAchievementDefinitions(), after, modules).operations.length, 0);
   assert.equal(after.documents.length, 8);
 });
+
+test('empty legacy icons observed in the real catalog are preserved without rewriting history', () => {
+  const before = legacyAchievements();
+  for (const document of before.documents) document.fields.icon = '';
+  const saved = clone(before);
+  const plan = m.createAchievementPlan(m.validateAchievementDefinitions(), before, modules);
+  assert.equal(plan.operations.length, 5);
+  assert.ok(plan.operations.every(o => o.operation === 'create'));
+  assert.deepEqual(before, saved);
+  assert.deepEqual(plan.before, saved);
+});
 test('manifest cannot self-approve or change payload, criteria, identity, extras or digest', {skip: !m}, () => {
   for (const change of [
     x => { x.editorialApproval.productionApproved = true; },

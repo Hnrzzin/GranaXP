@@ -3,6 +3,7 @@ package com.hnrzzin.granaxp.viewmodel
 import com.hnrzzin.granaxp.model.ActivityType
 import com.hnrzzin.granaxp.model.DailyMissionModel
 import com.hnrzzin.granaxp.model.LessonSelectionMode
+import com.hnrzzin.granaxp.model.StreakModel
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -30,5 +31,18 @@ class DailyMissionStateTest {
         assertEquals("2026-09-30", missionDateAt(1790823599000L))
         assertEquals("2026-10-01", missionDateAt(1790823600000L))
         assertEquals(1000L, millisUntilNextMissionDate(1790823599000L))
+    }
+
+    @Test fun headerUsesOnlyValidStreakFromTheCurrentMissionDate() {
+        val active = DailyMissionUiState.Active("2026-10-19", mission, StreakModel(7, 15))
+        assertEquals(7, active.headerStreak("2026-10-19"))
+        assertEquals(0, active.headerStreak("2026-10-20"))
+        assertEquals(0, active.copy(streak = StreakModel(-1, 15)).headerStreak("2026-10-19"))
+        assertEquals(0, active.copy(streak = StreakModel(7, 3)).headerStreak("2026-10-19"))
+        assertEquals(8, DailyMissionUiState.Completed(active.date, mission, StreakModel(8, 15))
+            .headerStreak("2026-10-19"))
+        assertEquals(0, DailyMissionUiState.Loading.headerStreak("2026-10-19"))
+        assertEquals(0, DailyMissionUiState.Unavailable.headerStreak("2026-10-19"))
+        assertEquals(0, DailyMissionUiState.Error("offline").headerStreak("2026-10-19"))
     }
 }

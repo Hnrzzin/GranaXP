@@ -20,8 +20,10 @@ function fields(value, historical = false) {
   assert.ok(value && Object.getPrototypeOf(value) === Object.prototype);
   assert.ok(required.every(k => Object.hasOwn(value, k)));
   assert.ok(Object.keys(value).every(k => [...required, 'referenceId'].includes(k)));
-  for (const key of ['title', 'description', 'icon'])
+  for (const key of ['title', 'description'])
     assert.ok(typeof value[key] === 'string' && value[key].trim() && value[key].length <= 2000);
+  assert.ok(typeof value.icon === 'string' && value.icon.length <= 2000 &&
+    (historical || value.icon.trim()));
   assert.ok(['FINANCAS', 'EDUCACAO'].includes(value.category));
   assert.ok(Number.isSafeInteger(value.requirementValue) && value.requirementValue > 0);
   if (!historical) assert.ok(Object.hasOwn(value, 'referenceId'));

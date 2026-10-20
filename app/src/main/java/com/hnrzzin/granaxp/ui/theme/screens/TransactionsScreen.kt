@@ -36,6 +36,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.hnrzzin.granaxp.model.TransactionModel
 import com.hnrzzin.granaxp.model.TransactionType
 import com.hnrzzin.granaxp.ui.theme.GranaXPColors
@@ -60,6 +62,7 @@ fun TransactionsScreen(
     goalViewModel: GoalViewModel,
     reminderViewModel: ReminderViewModel,
     userViewModel: UserViewModel,
+    dailyMissionViewModel: DailyMissionViewModel,
     onNavigateToHome: () -> Unit,
     onNavigateToLearn: () -> Unit,
     onNavigateToProfile: () -> Unit,
@@ -68,6 +71,8 @@ fun TransactionsScreen(
     val coroutineScope = rememberCoroutineScope()
     val selectedTab = FinanceTab.entries[pagerState.currentPage]
     val userUiState by userViewModel.uiState.collectAsStateWithLifecycle()
+    val dailyMissionState by dailyMissionViewModel.uiState.collectAsStateWithLifecycle()
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { dailyMissionViewModel.refresh() }
 
     var showAddTransactionSheet by remember { mutableStateOf(false) }
     var showAddBudgetDialog by remember { mutableStateOf(false) }
@@ -93,6 +98,7 @@ fun TransactionsScreen(
                 level = level,
                 xp = xp,
                 nextLevelXp = nextLevelXp,
+                currentStreak = dailyMissionState.headerStreak(),
                 onProfileClick = onNavigateToProfile
             )
         },

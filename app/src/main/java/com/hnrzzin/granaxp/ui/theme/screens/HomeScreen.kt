@@ -10,14 +10,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hnrzzin.granaxp.ui.theme.components.*
 import com.hnrzzin.granaxp.viewmodel.HomeUiState
 import com.hnrzzin.granaxp.viewmodel.HomeViewModel
+import com.hnrzzin.granaxp.viewmodel.DailyMissionViewModel
+import com.hnrzzin.granaxp.viewmodel.headerStreak
 import com.hnrzzin.granaxp.ui.theme.components.AppBottomNavigationBar
 
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
+    dailyMissionViewModel: DailyMissionViewModel,
     onNavigateToAddTransaction: () -> Unit = {},
     onNavigateToTransactions: () -> Unit = {},
     onNavigateToLearn: () -> Unit = {},
@@ -25,6 +31,8 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val dailyMissionState by dailyMissionViewModel.uiState.collectAsStateWithLifecycle()
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { dailyMissionViewModel.refresh() }
 
     when (val state = uiState) {
         is HomeUiState.Loading -> {
@@ -52,6 +60,7 @@ fun HomeScreen(
                         level = state.user.level,
                         xp = state.user.xp,
                         nextLevelXp = state.user.nextLevelXp,
+                        currentStreak = dailyMissionState.headerStreak(),
                         onProfileClick = onNavigateToProfile
                     )
                 },

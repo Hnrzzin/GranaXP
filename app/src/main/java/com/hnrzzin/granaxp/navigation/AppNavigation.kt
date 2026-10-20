@@ -125,6 +125,7 @@ fun AppNavigation() {
 
             HomeScreen(
                 viewModel = viewModel(factory = factory),
+                dailyMissionViewModel = viewModel(factory = factory),
 
                 onNavigateToTransactions = {
                     navController.navigate(Screen.TransactionList.route)
@@ -152,6 +153,7 @@ fun AppNavigation() {
                 goalViewModel = viewModel(factory = factory),
                 reminderViewModel = viewModel(factory = factory),
                 userViewModel = viewModel(factory = factory),   // ← novo
+                dailyMissionViewModel = viewModel(factory = factory),
 
                 // Mapeia as novas ações de navegação da tela
                 onNavigateToHome = {

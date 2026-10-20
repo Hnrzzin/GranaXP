@@ -50,4 +50,15 @@ class SparkLearningTest {
         assertEquals(144, displayed.nextLevelXp)
         assertEquals(0, stored.xp)
     }
+
+    @Test fun streakIgnoresFutureAndMalformedDatesWithoutChangingGracePeriod() {
+        val dates = listOf("2026-10-01", "2026-10-03", "2026-10-05",
+            "2026-10-20", "2026-10-21", "not-a-date")
+        val streak = educationalStreak(dates, "2026-10-06")
+        assertEquals(3, streak.currentStreak)
+        assertEquals(3, streak.highestStreak)
+        assertEquals("2026-10-05", streak.lastMissionCompletedDate)
+        assertEquals(0, educationalStreak(listOf("2030-01-01"), "2026-10-06").highestStreak)
+        assertEquals(0, educationalStreak(dates, "2026-10-10").currentStreak)
+    }
 }

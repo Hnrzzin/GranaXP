@@ -55,3 +55,14 @@ sealed interface DailyMissionUiState {
         val leveledUp: Boolean = false,
     ) : DailyMissionUiState
 }
+
+internal fun DailyMissionUiState.headerStreak(today: String = missionDateAt(System.currentTimeMillis())): Int {
+    val (date, streak) = when (this) {
+        is DailyMissionUiState.Active -> date to streak
+        is DailyMissionUiState.Completed -> date to streak
+        else -> return 0
+    }
+    return streak.currentStreak.takeIf {
+        date == today && it >= 0 && it <= streak.highestStreak
+    } ?: 0
+}

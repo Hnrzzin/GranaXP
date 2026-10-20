@@ -94,6 +94,7 @@ import com.hnrzzin.granaxp.viewmodel.LessonUiState
 import com.hnrzzin.granaxp.viewmodel.LessonViewModel
 import com.hnrzzin.granaxp.viewmodel.DailyMissionUiState
 import com.hnrzzin.granaxp.viewmodel.DailyMissionViewModel
+import com.hnrzzin.granaxp.viewmodel.headerStreak
 import com.hnrzzin.granaxp.viewmodel.LessonWithProgress
 import com.hnrzzin.granaxp.viewmodel.ModuleWithLessons
 import com.hnrzzin.granaxp.viewmodel.UserUiState
@@ -227,6 +228,7 @@ private fun LearningTrail(
                 level = user?.level ?: 1,
                 xp = user?.xp ?: 0,
                 nextLevelXp = user?.nextLevelXp ?: 100,
+                currentStreak = dailyMissionState.headerStreak(),
                 onProfileClick = onNavigateToProfile,
             )
         },

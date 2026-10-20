@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 
 data class AchievementWithProgress(
     val achievement: AchievementModel,
@@ -65,6 +67,8 @@ internal suspend fun loadAchievementUiState(
         combineAchievements(catalog, loadCanonicalProgress(), loadLegacyProgress(),
             loadLocalProgress(catalog)),
     )
+} catch (e: CancellationException) {
+    throw e
 } catch (e: Exception) {
     AchievementUiState.Error("Falha ao buscar conquistas: ${e.message}")
 }
@@ -76,13 +80,15 @@ class AchievementViewModel(private val userId: String) : ViewModel() {
 
     private val _uiState = MutableStateFlow<AchievementUiState>(AchievementUiState.Loading)
     val uiState: StateFlow<AchievementUiState> = _uiState.asStateFlow()
+    private var refreshJob: Job? = null
 
     init {
         fetchAchievements()
     }
 
     fun fetchAchievements() {
-        viewModelScope.launch {
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             _uiState.value = AchievementUiState.Loading
             _uiState.value = loadAchievementUiState(
                 loadCatalog = { repository.getAchievements() },

@@ -30,6 +30,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.hnrzzin.granaxp.ui.theme.GranaXPColors
 import com.hnrzzin.granaxp.ui.theme.components.AppBottomNavigationBar
 import com.hnrzzin.granaxp.ui.theme.components.AppTab
@@ -49,7 +51,7 @@ fun ProfileScreen(
     val actionState by userViewModel.actionState.collectAsStateWithLifecycle()
     val achievementState by achievementViewModel.uiState.collectAsStateWithLifecycle()
 
-    LaunchedEffect(Unit) {
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         userViewModel.fetchUser()
         achievementViewModel.fetchAchievements()
     }

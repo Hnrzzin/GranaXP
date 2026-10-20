@@ -11,6 +11,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hnrzzin.granaxp.ui.theme.GranaXPColors
@@ -20,6 +23,7 @@ fun HomeTopBar(
     level: Int,
     xp: Int,
     nextLevelXp: Int,
+    currentStreak: Int = 0,
     onProfileClick: () -> Unit
 ) {
     Row(
@@ -32,29 +36,44 @@ fun HomeTopBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Esquerda: nome do app
-        Column {
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
             Text(
                 "GranaXP",
                 color = GranaXPColors.White,
                 fontWeight = FontWeight.Bold,
-                fontSize = 18.sp
+                fontSize = 18.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 "Gestão & Aprendizado",
                 color = GranaXPColors.Emerald100,
-                fontSize = 12.sp
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
 
         // Direita: nível + XP bar + botão de perfil
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    "Nível $level",
-                    color = GranaXPColors.White,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 12.sp
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "🔥 ${currentStreak.coerceAtLeast(0)}",
+                        color = GranaXPColors.White,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        modifier = Modifier.semantics {
+                            contentDescription = "Sequência diária: ${currentStreak.coerceAtLeast(0)}"
+                        },
+                    )
+                    Text(
+                        "Nível $level",
+                        color = GranaXPColors.White,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp,
+                    )
+                }
                 Spacer(Modifier.height(4.dp))
                 LinearProgressIndicator(
                     progress = { if (nextLevelXp > 0) (xp.toFloat() / nextLevelXp.toFloat()).coerceIn(0f, 1f) else 0f },

@@ -36,8 +36,9 @@ internal fun educationalDisplayUser(stored: UserModel, totalXp: Int): UserModel 
 }
 
 internal fun educationalStreak(completedDates: List<String>, today: String): StreakModel {
+    val todayDay = LocalDate.parse(today).toEpochDays()
     val days = completedDates.mapNotNull { runCatching { LocalDate.parse(it).toEpochDays() }.getOrNull() }
-        .distinct().sorted()
+        .filter { it <= todayDay }.distinct().sorted()
     if (days.isEmpty()) return StreakModel()
     var run = 0
     var highest = 0
@@ -47,12 +48,11 @@ internal fun educationalStreak(completedDates: List<String>, today: String): Str
         highest = maxOf(highest, run)
         last = day
     }
-    val todayDay = LocalDate.parse(today).toEpochDays()
     val current = if (todayDay - days.last() >= 5) 0 else run
     return StreakModel(
         currentStreak = current,
         highestStreak = highest,
-        lastMissionCompletedDate = completedDates.distinct().maxOrNull(),
+        lastMissionCompletedDate = LocalDate.fromEpochDays(days.last()).toString(),
         claimedMilestones = listOf(3, 7, 10, 15, 30).filter { it <= highest },
     )
 }
